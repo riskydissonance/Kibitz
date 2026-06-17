@@ -25,28 +25,47 @@ mcp = FastMCP("chess")
 
 
 @mcp.tool()
-def analyze_game(pgn: str, player: str = "auto") -> dict:
+def analyze_game(
+    pgn: str,
+    player: str = "auto",
+    elo: Optional[int] = None,
+    sensitivity: Optional[str] = None,
+) -> dict:
     """Analyse a full game from PGN and find the player's mistakes.
+
+    Mistake sensitivity adapts to skill: stronger players get smaller win%-drop cutoffs (subtler
+    errors flagged) and a slightly deeper sweep. If `elo`/`sensitivity` are omitted, the reviewed
+    side's Elo is read from the PGN (normalized for Lichess vs Chess.com, whose scales differ).
 
     Args:
         pgn: The game in PGN format (Lichess/Chess.com exports work; comments and
             variations are ignored).
         player: Which side to review: "white", "black", or "auto" (infer from headers).
+        elo: Override the player's strength (normalized scale) instead of reading the PGN.
+        sensitivity: Or a named preset: "casual", "default", "strong", or "master".
 
     Returns a summary with per-side accuracy and an ordered list of the player's
-    inaccuracies/mistakes/blunders. Each mistake has an `index` usable with
-    `goto_mistake`, and a `fen_before` usable with `get_engine_line` for follow-ups.
-    The full result is stored in a shared session that the (future) web board reads.
+    inaccuracies/mistakes/blunders. Each mistake has an `index` usable with `goto_mistake`,
+    and a `fen_before` usable with `get_engine_line`. `review_elo`/`thresholds` show the
+    sensitivity used. The full result is stored in the shared session the web board reads.
     """
-    sess = _analyze_game(pgn, player=player)
+    sess = _analyze_game(pgn, player=player, elo=elo, sensitivity=sensitivity)
     session_mod.set_session(sess)
 
     summary = session_mod.summarize_session(sess)
     board_url = f"http://{config.WEB_HOST}:{config.WEB_PORT}"
     summary["board_url"] = board_url
+    if sess.review_elo is not None:
+        t = sess.thresholds or []
+        sens = (
+            f" Tuned to ~{round(sess.review_elo)} Elo ({sess.elo_source}); a move is flagged from "
+            f"a {t[0] if t else 5}% win-chance drop."
+        )
+    else:
+        sens = " Using default sensitivity (5/10/15% drops); no Elo found in the PGN."
     summary["note"] = (
         f"Open the interactive board at {board_url} to replay each mistake and try "
-        "alternatives. Or ask 'why was move N bad?' here and I'll use get_engine_line."
+        f"alternatives. Or ask 'why was move N bad?' here and I'll use get_engine_line.{sens}"
     )
     return summary
 

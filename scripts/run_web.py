@@ -5,7 +5,10 @@ FastAPI board in the foreground. This is the primary manual-test entry point for
 
 Usage:
     STOCKFISH_PATH=/usr/local/bin/stockfish \
-      /opt/miniconda3/envs/chess-review/bin/python scripts/run_web.py example_pgns/game1.pgn white
+      /opt/miniconda3/envs/chess-review/bin/python scripts/run_web.py example_pgns/game1.pgn white [elo]
+
+The optional 3rd arg is the player's Elo (overrides the PGN); omit it to read Elo from the PGN
+headers (or fall back to default sensitivity).
 """
 from __future__ import annotations
 
@@ -29,11 +32,12 @@ from server.web.app import create_app
 def main() -> int:
     path = sys.argv[1] if len(sys.argv) > 1 else "example_pgns/game1.pgn"
     player = sys.argv[2] if len(sys.argv) > 2 else "auto"
+    elo = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else None
     pgn = Path(path).read_text()
 
-    print(f"Analysing {path} (player={player}) ...", flush=True)
+    print(f"Analysing {path} (player={player}, elo={elo or 'from PGN/default'}) ...", flush=True)
     t = time.time()
-    sess = analyze_game(pgn, player=player)
+    sess = analyze_game(pgn, player=player, elo=elo)
     session_mod.set_session(sess)
     print(
         f"Done in {time.time() - t:.1f}s — {len(sess.mistakes)} mistakes flagged "

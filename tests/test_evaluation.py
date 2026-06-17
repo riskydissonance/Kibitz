@@ -10,6 +10,24 @@ def test_win_percent_zero_is_fifty():
     assert ev.win_percent(0) == pytest.approx(50.0)
 
 
+def test_thresholds_scale_with_elo():
+    assert ev.thresholds_for_elo(None) == ev.DEFAULT_THRESHOLDS
+    # ~1500 Elo is the anchor: ×1.0 -> the default 5/10/15.
+    assert ev.thresholds_for_elo(1500) == pytest.approx((5.0, 10.0, 15.0))
+    casual = ev.thresholds_for_elo(1000)
+    strong = ev.thresholds_for_elo(2000)
+    master = ev.thresholds_for_elo(2400)
+    # Stronger player -> smaller cutoffs at every severity.
+    assert master[0] < strong[0] < ev.DEFAULT_THRESHOLDS[0] < casual[0]
+    assert master[1] < strong[1] < master[2]  # mistake cutoff still below blunder cutoff
+
+
+def test_classify_respects_custom_thresholds():
+    # A 6% win drop: an inaccuracy at default sensitivity, a mistake at master sensitivity.
+    assert ev.classify(60.0, 54.0) == "inaccuracy"
+    assert ev.classify(60.0, 54.0, thresholds=(2.5, 6.0, 11.0)) == "mistake"
+
+
 def test_win_percent_monotonic_in_cp():
     cps = [-1000, -500, -200, -50, 0, 50, 200, 500, 1000]
     wins = [ev.win_percent(c) for c in cps]

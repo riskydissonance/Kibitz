@@ -48,6 +48,13 @@ class ReviewSession(BaseModel):
     mistakes: list[MoveReview] = Field(default_factory=list)  # inaccuracy/mistake/blunder
     current_index: int = 0  # index into `mistakes`
     explore_fen: Optional[str] = None
+    # Skill-adaptive review: the Elo we tuned the mistake thresholds to (normalized scale),
+    # where it came from, the resulting (inaccuracy, mistake, blunder) win%-drop cutoffs, and
+    # the sweep depth used. review_elo None -> default 5/10/15 thresholds.
+    review_elo: Optional[float] = None
+    elo_source: Optional[str] = None
+    thresholds: Optional[list[float]] = None
+    sweep_depth: Optional[int] = None
     # Per-node timeline of the whole game (both sides): one entry per position from the
     # start (node 0) to the final position. Powers the win graph, arrow-key navigation,
     # and the move/best arrows on the board. Each entry is a plain dict (see build_timeline).
@@ -109,6 +116,10 @@ def summarize_session(sess: ReviewSession) -> dict:
         "num_mistakes": len(sess.mistakes),
         "mistakes": mistakes,
         "current_index": sess.current_index,
+        "review_elo": sess.review_elo,
+        "elo_source": sess.elo_source,
+        "thresholds": sess.thresholds,
+        "sweep_depth": sess.sweep_depth,
     }
 
 

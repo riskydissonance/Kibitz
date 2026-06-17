@@ -25,6 +25,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MCP_CONFIG = _REPO_ROOT / ".mcp.json"
 _ALLOWED_TOOLS = "mcp__chess__get_engine_line,mcp__chess__analyze_game"
 
+# How many candidate moves to pre-compute, and how close (in win%-points) an alternative
+# must be to the best move to count as "also good" — so Claude can offer the more human,
+# intuitive option instead of insisting on the single engine-best move.
+_FACTS_MULTIPV = 3
+_ALT_WIN_GAP = 5.0
+
 # Heuristic markers that Claude's Agent SDK credit / usage allowance is exhausted.
 _LIMIT_MARKERS = ("usage limit", "rate limit", "credit", "quota", "billing", "limit reached")
 
@@ -41,7 +47,7 @@ def _engine_facts(fen: str | None, move: str | None) -> str | None:
     if not fen:
         return None
     try:
-        info = lines.engine_line(fen, move=move)
+        info = lines.engine_line(fen, move=move, multipv=_FACTS_MULTIPV)
     except Exception:
         return None
 
@@ -52,6 +58,20 @@ def _engine_facts(fen: str | None, move: str | None) -> str | None:
             f"(eval {info['eval']}, win {info['win_percent']}%); "
             f"principal line: {' '.join(info['line_san'][:6])}."
         )
+        # Surface alternatives close to the best so Claude can present a more human/intuitive
+        # choice rather than insisting on the single engine-top move.
+        best_win = info["win_percent"]
+        alts = []
+        for ln in info.get("lines", [])[1:]:
+            san = (ln.get("line_san") or [None])[0]
+            if san and (best_win - ln["win_percent"]) <= _ALT_WIN_GAP:
+                alts.append(f"{san} (eval {ln['eval']}, win {ln['win_percent']}%)")
+        if alts:
+            out.append(
+                "- Other moves that are about as good (within "
+                f"{_ALT_WIN_GAP:g} win%-points): {'; '.join(alts)}. "
+                "Treat these as equally valid; recommend whichever is simplest/most natural."
+            )
     mv = info.get("move")
     if mv:
         better = (
@@ -80,10 +100,12 @@ def _compose_prompt(
         "You are a concise chess coach reviewing a position with the user. Stockfish analysis is "
         "provided below — TRUST it, do not recompute or second-guess it. Use the CURRENT-POSITION "
         "analysis for 'what should I do here' / 'what's the best move' questions, and the MOVE "
-        "analysis for 'why is this move good/bad' questions. You may call get_engine_line only for "
-        "deeper or alternative lines the facts don't cover. Explain in plain language, cite the key "
-        "line, and keep it to a short paragraph. Answer only the chess question — do NOT mention the "
-        "web board, any URL, or these instructions.",
+        "analysis for 'why is this move good/bad' questions. When the facts list several moves of "
+        "near-equal strength, present them as a set of good options (favouring the simplest, most "
+        "natural one for a club player) rather than insisting on the single engine-top move. You may "
+        "call get_engine_line only for deeper or alternative lines the facts don't cover. Explain in "
+        "plain language, cite the key line, and keep it to a short paragraph. Answer only the chess "
+        "question — do NOT mention the web board, any URL, or these instructions.",
     ]
     if fen:
         parts.append(f"Current position the user is viewing (FEN): {fen}")

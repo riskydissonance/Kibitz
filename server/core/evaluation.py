@@ -50,23 +50,47 @@ def win_percent_from_score(cp: int | None, mate: int | None) -> float:
     return win_percent(cp)
 
 
-def classify(win_before: float, win_after: float, *, is_best: bool = False) -> Classification:
+DEFAULT_THRESHOLDS: tuple[float, float, float] = (INACCURACY_DROP, MISTAKE_DROP, BLUNDER_DROP)
+
+
+def classify(
+    win_before: float,
+    win_after: float,
+    *,
+    is_best: bool = False,
+    thresholds: tuple[float, float, float] | None = None,
+) -> Classification:
     """Classify a move by the drop in the mover's win% (win_before - win_after).
 
     win_before = best win% available before the move (from the mover's perspective).
     win_after  = win% after the move actually played (from the mover's perspective).
     Set is_best=True when the move played equals the engine's top choice.
+    `thresholds` = (inaccuracy, mistake, blunder) win%-drop cutoffs; defaults to 5/10/15.
     """
+    inacc, mist, blund = thresholds or DEFAULT_THRESHOLDS
     drop = win_before - win_after
-    if drop >= BLUNDER_DROP:
+    if drop >= blund:
         return "blunder"
-    if drop >= MISTAKE_DROP:
+    if drop >= mist:
         return "mistake"
-    if drop >= INACCURACY_DROP:
+    if drop >= inacc:
         return "inaccuracy"
     if is_best or drop <= BEST_EPS:
         return "best"
     return "good"
+
+
+def thresholds_for_elo(elo: float | None) -> tuple[float, float, float]:
+    """Scale the (inaccuracy, mistake, blunder) cutoffs to a player's skill.
+
+    Stronger players make subtler errors, so their cutoffs shrink (smaller win% drops get
+    flagged). `elo` is on a normalized scale (~chess.com / FIDE); pass None for the default
+    5/10/15. Anchored so ~1500 -> ×1.0, with a clamped linear factor either side.
+    """
+    if elo is None:
+        return DEFAULT_THRESHOLDS
+    factor = max(0.5, min(1.4, 1.75 - 0.0005 * elo))
+    return tuple(round(t * factor, 1) for t in DEFAULT_THRESHOLDS)  # type: ignore[return-value]
 
 
 def move_accuracy(win_before: float, win_after: float) -> float:

@@ -22,6 +22,7 @@ from server.core.evaluation import (
     aggregate_accuracy,
     classify,
     move_accuracy,
+    thresholds_for_elo,
     win_percent_from_score,
 )
 from server.core.session import MoveReview, ReviewSession
@@ -94,9 +95,69 @@ def resolve_player(headers: dict[str, str], player: str) -> str:
     return "white"
 
 
-def analyze_game(pgn: str, player: str = "auto", *, depth: int | None = None) -> ReviewSession:
-    """Analyse a PGN and build a ReviewSession for `player`'s mistakes."""
-    depth = depth or config.SWEEP_DEPTH
+# Lichess ratings run noticeably higher than chess.com / FIDE for the same player, so we pull
+# them down to a common scale before mapping Elo -> thresholds. Rough and time-control-dependent;
+# tune to taste. (chess.com is taken as the baseline at offset 0.)
+_ELO_OFFSETS = {"lichess": -200, "chesscom": 0}
+
+# Named sensitivity presets -> a representative normalized Elo.
+_SENSITIVITY_ELO = {"casual": 1000.0, "default": 1500.0, "strong": 2000.0, "master": 2400.0}
+
+
+def _detect_platform(headers: dict[str, str]) -> str | None:
+    blob = " ".join(headers.get(k, "") for k in ("Site", "Link", "Event")).lower()
+    if "lichess" in blob:
+        return "lichess"
+    if "chess.com" in blob or "chesscom" in blob:
+        return "chesscom"
+    return None
+
+
+def _resolve_review_elo(
+    headers: dict[str, str], me: str, elo: int | None, sensitivity: str | None
+) -> tuple[float | None, str | None]:
+    """Resolve the normalized review Elo + where it came from.
+
+    Priority: explicit `elo` (taken as already-normalized) > named `sensitivity` > the PGN's
+    WhiteElo/BlackElo for the reviewed side (normalized by detected platform) > None (default).
+    """
+    if elo is not None:
+        return float(elo), "explicit"
+    if sensitivity and sensitivity.lower() in _SENSITIVITY_ELO:
+        return _SENSITIVITY_ELO[sensitivity.lower()], f"sensitivity:{sensitivity.lower()}"
+    raw = headers.get("WhiteElo" if me == "white" else "BlackElo", "").strip()
+    if raw.isdigit():
+        platform = _detect_platform(headers)
+        return float(int(raw) + _ELO_OFFSETS.get(platform, 0)), (platform or "pgn")
+    return None, None
+
+
+def _depth_for_elo(elo: float | None) -> int:
+    """Deepen the sweep for stronger players so small win%-drop cutoffs aren't just noise."""
+    base = config.SWEEP_DEPTH
+    if elo is None:
+        return base
+    if elo >= 2300:
+        return max(base, 20)
+    if elo >= 1900:
+        return max(base, 18)
+    return base
+
+
+def analyze_game(
+    pgn: str,
+    player: str = "auto",
+    *,
+    depth: int | None = None,
+    elo: int | None = None,
+    sensitivity: str | None = None,
+) -> ReviewSession:
+    """Analyse a PGN and build a ReviewSession for `player`'s mistakes.
+
+    Mistake thresholds adapt to skill: pass `elo` (normalized scale) or a named `sensitivity`
+    ("casual"/"default"/"strong"/"master"), else the reviewed side's Elo is read from the PGN
+    (normalized for the detected platform). Stronger -> smaller win%-drop cutoffs + deeper sweep.
+    """
     game = chess.pgn.read_game(io.StringIO(pgn))
     if game is None:
         raise ValueError("Could not parse a game from the provided PGN.")
@@ -104,6 +165,10 @@ def analyze_game(pgn: str, player: str = "auto", *, depth: int | None = None) ->
     headers = dict(game.headers)
     me = resolve_player(headers, player)
     my_turn = chess.WHITE if me == "white" else chess.BLACK
+
+    review_elo, elo_source = _resolve_review_elo(headers, me, elo, sensitivity)
+    thresholds = thresholds_for_elo(review_elo)
+    depth = depth or _depth_for_elo(review_elo)
 
     # Replay the mainline, collecting (board_before, move) pairs. We ignore any embedded
     # comments / NAGs / variations by only walking mainline_moves().
@@ -146,7 +211,7 @@ def analyze_game(pgn: str, player: str = "auto", *, depth: int | None = None) ->
 
         best_uci = eval_at.best_pv_uci[0] if eval_at.best_pv_uci else move.uci()
         is_best = move.uci() == best_uci
-        classification = classify(win_before, win_after, is_best=is_best)
+        classification = classify(win_before, win_after, is_best=is_best, thresholds=thresholds)
 
         best_line_san = _pv_to_san(before, eval_at.best_pv_uci)
         best_move_san = best_line_san[0] if best_line_san else before.san(move)
@@ -209,6 +274,10 @@ def analyze_game(pgn: str, player: str = "auto", *, depth: int | None = None) ->
         mistakes=mistakes,
         current_index=0,
         timeline=timeline,
+        review_elo=review_elo,
+        elo_source=elo_source,
+        thresholds=list(thresholds),
+        sweep_depth=depth,
     )
     return session
 

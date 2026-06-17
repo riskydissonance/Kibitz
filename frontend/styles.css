@@ -32,6 +32,60 @@ header {
 header h1 { font-size: 18px; margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
 
+/* keyboard-shortcuts help marker + hover/focus tooltip */
+.help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  vertical-align: middle;
+  user-select: none;
+}
+.help:hover, .help:focus { background: var(--accent); color: #fff; outline: none; }
+.help-tip {
+  position: absolute;
+  top: 140%;
+  left: 0;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: #14130f;
+  border: 1px solid #34322e;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: default;
+  white-space: nowrap;
+}
+.help:hover .help-tip, .help:focus .help-tip { display: flex; }
+.help-tip b { color: #fff; margin-bottom: 3px; font-size: 12.5px; }
+.help-tip kbd {
+  display: inline-block;
+  min-width: 14px;
+  padding: 1px 5px;
+  background: var(--panel2);
+  border: 1px solid #4a4742;
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: #e7e3da;
+  text-align: center;
+}
+
 main {
   display: flex;
   gap: 24px;
@@ -207,8 +261,20 @@ main {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-.chat-msg.user { background: var(--panel2); align-self: flex-end; max-width: 90%; }
-.chat-msg.bot { background: var(--panel); align-self: flex-start; }
+.chat-msg.user {
+  background: #38461f; /* muted accent green — reads as an outgoing message */
+  color: #eef3e3;
+  align-self: flex-end;
+  max-width: 90%;
+  border: 1px solid #4a5c28;
+  border-bottom-right-radius: 3px; /* tail on the sender's side */
+}
+.chat-msg.bot {
+  background: var(--panel);
+  align-self: flex-start;
+  border: 1px solid #34322e;
+  border-bottom-left-radius: 3px;
+}
 .chat-msg.err { background: #3a1d1d; border-left: 3px solid var(--blunder); }
 .chat-msg.pending { color: var(--muted); font-style: italic; }
 

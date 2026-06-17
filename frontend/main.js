@@ -7,7 +7,8 @@ let ground = null;
 
 let timeline = []; // nodes 0..N for the whole game
 let mistakes = [];
-let player = "white";
+let player = "white"; // the reviewed side (drives the header label)
+let orient = "white"; // board orientation; starts at `player` but the `f` hotkey flips it
 
 let cur = 0; // current timeline node (valid when !exploring)
 let anchorNode = 0; // the review (mistake) node we started from
@@ -66,7 +67,7 @@ function renderBoard() {
   const color = turnColor();
   ground.set({
     fen: chess.fen(),
-    orientation: player,
+    orientation: orient,
     turnColor: color,
     check: chess.inCheck(),
     movable: { color, dests: computeDests(), free: false, showDests: true },
@@ -155,7 +156,7 @@ function applyEvalBarTheme() {
   const dark = "#2b2a27";
   const fill = $("evalbar-fill");
   const bar = $("evalbar");
-  if (player === "white") {
+  if (orient === "white") {
     fill.style.background = light;
     bar.style.background = dark;
   } else {
@@ -164,7 +165,7 @@ function applyEvalBarTheme() {
   }
 }
 function setEvalBar(winWhite) {
-  const bottomShare = player === "white" ? winWhite : 100 - winWhite;
+  const bottomShare = orient === "white" ? winWhite : 100 - winWhite;
   $("evalbar-fill").style.height = `${clamp(bottomShare, 0, 100)}%`;
 }
 
@@ -175,8 +176,11 @@ function renderVerdict(payload) {
   const m = payload.move;
   const refute = m.refutation_line_san.slice(0, 6).join(" ");
   const better = m.is_engine_best ? "Engine's top choice." : `Best was <b>${m.better_move_san}</b>.`;
+  // "best" classification = within BEST_EPS of the top move. If it's NOT literally the engine's
+  // top choice, show it as "good" so the badge doesn't contradict the "Best was …" text.
+  const label = m.classification === "best" && !m.is_engine_best ? "good" : m.classification;
   $("verdict").innerHTML =
-    `<span class="tag ${m.classification}">${m.classification}</span>` +
+    `<span class="tag ${label}">${label}</span>` +
     `<b>${m.move_san}</b> — win ${m.win_before}% → ${m.win_after}% ` +
     `(swing ${m.win_swing}, eval ${m.eval_after}). ${better}` +
     (refute ? `<div class="line">Reply: ${refute}</div>` : "");
@@ -225,6 +229,23 @@ function gotoNode(n) {
 
 function returnToReview() {
   gotoNode(anchorNode);
+}
+
+// Flip the board (hotkey `f`). The eval bar + win graph follow `orient`, so flip them too.
+function flipBoard() {
+  orient = orient === "white" ? "black" : "white";
+  applyEvalBarTheme();
+  renderBoard();
+  setEvalBar(timeline[cur] ? timeline[cur].win_white : 50);
+  renderGraph();
+}
+
+// Toggle the "Show best move" arrows from the keyboard (hotkey `l`), keeping the checkbox in sync.
+function toggleBestArrows() {
+  const box = $("best-toggle");
+  box.checked = !box.checked;
+  bestArrowOn = box.checked;
+  refreshBestMoves();
 }
 
 function stepBack() {
@@ -329,7 +350,7 @@ function renderGraph() {
   const y = (w) => GH - (w / 100) * GH;
   // Plot from the reviewed player's perspective, matching the eval bar: the filled area
   // grows from the bottom as YOUR side does better, so for black it reads black-on-bottom.
-  const val = (nd) => (player === "white" ? nd.win_white : 100 - nd.win_white);
+  const val = (nd) => (orient === "white" ? nd.win_white : 100 - nd.win_white);
 
   // Two-tone fill split at the eval curve, mirroring the eval bar: each side keeps its own
   // colour (light = White, dark = Black) and the reviewed player's side sits on the bottom.
@@ -338,8 +359,8 @@ function renderGraph() {
   const aboveArea = `M0,0 L${pts} L${GW},0 Z`; // top = the opponent's side
   const LIGHT = "rgba(236,234,228,0.22)"; // White
   const DARK = "rgba(0,0,0,0.45)"; // Black
-  const bottomFill = player === "white" ? LIGHT : DARK;
-  const topFill = player === "white" ? DARK : LIGHT;
+  const bottomFill = orient === "white" ? LIGHT : DARK;
+  const topFill = orient === "white" ? DARK : LIGHT;
 
   const line = timeline
     .map((nd, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(val(nd)).toFixed(1)}`)
@@ -516,15 +537,19 @@ async function loadAll() {
       "No game analysed yet. Run analyze_game (or scripts/run_web.py) first.";
     return;
   }
+  const sens = session.review_elo
+    ? ` · sensitivity ~${Math.round(session.review_elo)} Elo`
+    : "";
   $("game-meta").textContent =
     `${session.white} vs ${session.black} — ${session.result} · reviewing ${session.player} ` +
-    `(acc W ${session.accuracy_white} / B ${session.accuracy_black}) · ${session.num_mistakes} mistakes`;
+    `(acc W ${session.accuracy_white} / B ${session.accuracy_black}) · ${session.num_mistakes} mistakes${sens}`;
   mistakes = session.mistakes;
   renderMistakeList();
 
   const tl = await fetch("/api/timeline").then((r) => r.json());
   timeline = tl.nodes || [];
   player = tl.player || "white";
+  orient = player; // orientation follows the reviewed side until the user flips (f)
   applyEvalBarTheme();
 
   if (mistakes.length) selectMistake(session.current_index ?? 0);
@@ -534,7 +559,7 @@ async function loadAll() {
 function init() {
   ground = Chessground($("board"), {
     fen: chess.fen(),
-    orientation: player,
+    orientation: orient,
     movable: { free: false, color: "white", dests: computeDests(), showDests: true },
     events: { move: onUserMove },
     drawable: { enabled: true },
@@ -564,6 +589,11 @@ function init() {
   $("chat-form").addEventListener("submit", sendChat);
 
   window.addEventListener("keydown", (e) => {
+    // Escape blurs the chat box (or any field) so board hotkeys work again.
+    if (e.key === "Escape" && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
+      e.target.blur();
+      return;
+    }
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
@@ -571,6 +601,27 @@ function init() {
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
       stepForward();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      gotoNode(0); // jump to the start of the game (Lichess: ↑)
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      gotoNode(timeline.length - 1); // jump to the end of the game (Lichess: ↓)
+    } else if (e.key === " ") {
+      e.preventDefault();
+      stepForward(); // space = next move (Lichess)
+    } else if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      flipBoard(); // f = flip board (Lichess)
+    } else if (e.key === "l" || e.key === "L") {
+      e.preventDefault();
+      toggleBestArrows(); // l = toggle best-move arrows (Lichess: local engine)
+    } else if (e.key === "n" || e.key === "N") {
+      e.preventDefault();
+      if (currentMistake < mistakes.length - 1) selectMistake(currentMistake + 1); // next mistake
+    } else if (e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      if (currentMistake > 0) selectMistake(currentMistake - 1); // previous mistake
     }
   });
 

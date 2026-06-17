@@ -11,7 +11,20 @@
   </head>
   <body>
     <header>
-      <h1>Chess Review</h1>
+      <h1>
+        Chess Review
+        <span class="help" tabindex="0" aria-label="Keyboard shortcuts">?
+          <span class="help-tip" role="tooltip">
+            <b>Keyboard shortcuts</b>
+            <span><kbd>←</kbd> / <kbd>→</kbd> previous / next move</span>
+            <span><kbd>↑</kbd> / <kbd>↓</kbd> start / end of game</span>
+            <span><kbd>Space</kbd> next move</span>
+            <span><kbd>n</kbd> / <kbd>p</kbd> next / previous mistake</span>
+            <span><kbd>f</kbd> flip board</span>
+            <span><kbd>l</kbd> toggle best move</span>
+          </span>
+        </span>
+      </h1>
       <div id="game-meta" class="muted">Loading…</div>
     </header>
 
@@ -29,14 +42,14 @@
         <div class="controls">
           <div class="ctrl-group">
             <button id="back" title="Back one move (←)">◀ Back</button>
-            <button id="fwd" title="Forward one move (→)">Forward ▶</button>
+            <button id="fwd" title="Forward one move (→ or Space)">Forward ▶</button>
           </div>
           <div class="ctrl-group">
-            <button id="prev-mistake" title="Previous mistake">‹ Mistake</button>
-            <button id="next-mistake" title="Next mistake">Mistake ›</button>
-            <button id="reset">↩ Review move</button>
+            <button id="prev-mistake" title="Previous mistake (p)">‹ Mistake</button>
+            <button id="next-mistake" title="Next mistake (n)">Mistake ›</button>
+            <button id="reset" title="Snap back to the move under review">↩ Reset to move</button>
           </div>
-          <label class="toggle">
+          <label class="toggle" title="Toggle best-move arrows (l)">
             <input type="checkbox" id="best-toggle" /> Show best move
           </label>
         </div>
