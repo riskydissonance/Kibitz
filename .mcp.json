@@ -19,7 +19,7 @@
       "command": "uv",
       "args": ["run", "--directory", ".", "python", "-m", "server.mcp_server"],
       "env": {
-        "CHESS_USERNAME": "thedarktintin",
+        "CHESS_USERNAME": "",
         "STOCKFISH_PATH": "",
         "CHESS_ALIASES": "",
         "LICHESS_TOKEN": "",
