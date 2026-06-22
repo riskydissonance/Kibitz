@@ -71,6 +71,12 @@
         </div>
 
         <div id="status" class="status"></div>
+      </section>
+
+      <aside class="side-col">
+        <div id="coach" class="coach" hidden></div>
+        <!-- Current-move feedback + AI summary live in this scrolling column so the board column
+             stays short enough to pin (see .board-col position:sticky in styles.css). -->
         <div id="comment" class="comment"></div>
         <div id="verdict" class="verdict"></div>
         <div class="coach-ai-wrap">
@@ -80,10 +86,6 @@
           </button>
           <div id="coach-ai" class="coach-ai" hidden></div>
         </div>
-      </section>
-
-      <aside class="side-col">
-        <div id="coach" class="coach" hidden></div>
         <section id="movelist-panel" class="movelist-panel">
           <div class="movelist-head">
             <h2>Moves</h2>

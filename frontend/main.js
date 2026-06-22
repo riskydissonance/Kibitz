@@ -1004,6 +1004,7 @@ function beginProvisional(pgn, side, metaText) {
 
 function openGame(pgn, side) {
   batchInfo = null; // a single open is not a batch
+  closeHistoryDrawer(); // on small screens the drawer covers the board — get out of the way
   beginProvisional(pgn, side);
   fetch("/api/analyze", {
     method: "POST",
@@ -1034,6 +1035,7 @@ async function openBatch(pgnText, side, username) {
   batchInfo = { total: res.total_games, self_handle: res.self_handle, lastDone: -1 };
   const who = res.self_handle ? ` as ${res.self_handle}` : "";
   $("history-status").textContent = `Analyzing ${res.total_games} games${who} → they'll appear in My games.`;
+  closeHistoryDrawer(); // on small screens the drawer covers the board — get out of the way
   beginProvisional(res.first_pgn, res.first_side, `Analyzing game 1 of ${res.total_games}…`);
   startPolling();
 }
@@ -1439,11 +1441,23 @@ function updatePasteHint() {
     n > 1 ? `${n} games detected — all will be analyzed into My games.` : "1 game ready to analyze.";
 }
 
+// Below this width the Games panel is an off-canvas drawer (see styles.css) rather than a third
+// column, so it must start closed and auto-close when a game is opened to reveal the board.
+const HISTORY_DRAWER_MAX = 1400;
+function historyIsDrawer() {
+  return window.innerWidth <= HISTORY_DRAWER_MAX;
+}
+function closeHistoryDrawer() {
+  if (historyIsDrawer()) document.body.classList.add("history-hidden");
+}
+
 function toggleHistory() {
   document.body.classList.toggle("history-hidden");
 }
 
 function init() {
+  // On small screens the Games panel is a drawer that overlays the board, so start it closed.
+  closeHistoryDrawer();
   ground = Chessground($("board"), {
     fen: chess.fen(),
     orientation: orient,
