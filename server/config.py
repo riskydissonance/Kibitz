@@ -118,7 +118,9 @@ ENGINE_HASH_MB: int = int(os.environ.get("CHESS_ENGINE_HASH_MB", "128"))
 MATE_SCORE_CP: int = 10000
 
 # Used by analyze_game(player="auto") to pick which side is "me" from PGN headers.
-USERNAME: str = os.environ.get("CHESS_USERNAME", "thedarktintin")
+# Default MUST be empty: a non-empty default would silently become every fresh install's "me"
+# (the downloadable app's launcher never sets CHESS_USERNAME), suppressing the first-run prompt.
+USERNAME: str = os.environ.get("CHESS_USERNAME", "")
 
 
 def _parse_aliases(raw: str) -> list[tuple[str | None, str]]:
