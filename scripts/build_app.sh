@@ -172,6 +172,43 @@ die() {  # show a native error dialog, then exit non-zero
   exit 1
 }
 
+# Download the official static Stockfish straight from GitHub (no Homebrew needed) into $1, picking
+# the build for this CPU and falling back to a more compatible one if it won't run. Returns non-zero
+# on failure. curl-downloaded binaries aren't quarantined, so they run without a Gatekeeper prompt.
+download_stockfish() {
+  local dest="$1" arch tag tmp asset member
+  arch="$(uname -m)"
+  tag="sf_18"
+  local candidates=()
+  if [ "$arch" = "arm64" ]; then
+    candidates=( "stockfish-macos-m1-apple-silicon" )
+  elif sysctl -n machdep.cpu.leaf7_features 2>/dev/null | grep -q AVX2; then
+    candidates=( "stockfish-macos-x86-64-avx2" "stockfish-macos-x86-64-sse41-popcnt" "stockfish-macos-x86-64" )
+  else
+    candidates=( "stockfish-macos-x86-64-sse41-popcnt" "stockfish-macos-x86-64" )
+  fi
+  mkdir -p "$(dirname "$dest")"
+  for asset in "${candidates[@]}"; do
+    member="stockfish/$asset"
+    tmp="$(mktemp -d)"
+    echo "Fetching $asset ($tag)…"
+    if curl -fsSL -o "$tmp/sf.tar" "https://github.com/official-stockfish/Stockfish/releases/download/$tag/$asset.tar" \
+       && tar -xf "$tmp/sf.tar" -C "$tmp" "$member" 2>/dev/null \
+       && mv -f "$tmp/$member" "$dest" 2>/dev/null; then
+      chmod +x "$dest"; rm -rf "$tmp"
+      # Confirm this build actually runs on this CPU (an over-aggressive variant would crash).
+      if printf 'uci\nquit\n' | "$dest" 2>/dev/null | grep -q "uciok"; then
+        return 0
+      fi
+      echo "$asset didn't run on this CPU — trying a more compatible build…"
+      rm -f "$dest"
+    else
+      rm -rf "$tmp"
+    fi
+  done
+  return 1
+}
+
 # Already running? Just (re)open the browser and stop — don't start a second server.
 if curl -fsS "${URL}/api/app-config" >/dev/null 2>&1; then
   echo "Already running — opening ${URL}"
@@ -188,14 +225,25 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 command -v uv >/dev/null 2>&1 || die "'uv' was installed but isn't on PATH. Open a Terminal, run: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
-# 2) Stockfish — the chess engine (not a pip package).
-if ! command -v stockfish >/dev/null 2>&1; then
-  echo "Installing Stockfish…"
-  if command -v brew >/dev/null 2>&1; then
-    brew install stockfish || die "Could not install Stockfish via Homebrew. See $LOG."
-  else
-    die "Stockfish isn't installed and Homebrew wasn't found. Install Homebrew from https://brew.sh and reopen the app, or download Stockfish from https://stockfishchess.org/download/."
-  fi
+# 2) Stockfish — the chess engine (not a pip package). Prefer a system install / Homebrew; on a
+#    clean Mac with neither, download the official static binary from GitHub (no Homebrew needed)
+#    into the data dir. That path is exported as STOCKFISH_PATH *and* auto-detected by the app (it
+#    lives under CHESS_DATA_DIR — see config._managed_stockfish_path), so it's found with zero config.
+SF_MANAGED="$DATA_DIR/engine/stockfish"
+if command -v stockfish >/dev/null 2>&1; then
+  echo "Stockfish found on PATH: $(command -v stockfish)"
+elif [ -x "$SF_MANAGED" ]; then
+  echo "Using previously downloaded Stockfish: $SF_MANAGED"
+  export STOCKFISH_PATH="$SF_MANAGED"
+elif command -v brew >/dev/null 2>&1; then
+  echo "Installing Stockfish via Homebrew…"
+  brew install stockfish || die "Could not install Stockfish via Homebrew. See $LOG."
+else
+  echo "No Stockfish and no Homebrew — downloading Stockfish…"
+  download_stockfish "$SF_MANAGED" \
+    || die "Could not download Stockfish. Check your internet connection and reopen the app, or install it from https://stockfishchess.org/download/."
+  export STOCKFISH_PATH="$SF_MANAGED"
+  echo "Stockfish ready: $SF_MANAGED"
 fi
 
 # 3) Build the Python environment in the writable support dir (NOT inside the bundle).

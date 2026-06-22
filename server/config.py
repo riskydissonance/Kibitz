@@ -12,6 +12,39 @@ import sys
 # Repo root (this file is <repo>/server/config.py), used for repo-relative defaults.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+def _default_data_dir() -> str:
+    """User-level folder for history/cache/settings — the SHARED store.
+
+    Resolved per-OS to the conventional app-data location so every entry point on a machine lands
+    in the same place automatically: the MCP server (Claude Code) and the double-click `.app` thus
+    read/write ONE history + analysis cache + coaching profile, with no machine-specific config.
+    (The `.app` launcher also exports the macOS path explicitly, belt-and-suspenders.) Overridable
+    with CHESS_DATA_DIR; set it to ``<repo>/.chess-review`` to keep data inside a dev checkout.
+    """
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", "Tintin AI Chess Analysis", "data")
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
+        return os.path.join(base, "Tintin AI Chess Analysis", "data")
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+    return os.path.join(base, "tintin-ai-chess-analysis", "data")
+
+
+def _resolve_data_dir() -> str:
+    """The effective DATA_DIR — the CHESS_DATA_DIR override, else the per-OS default."""
+    return os.environ.get("CHESS_DATA_DIR", "").strip() or _default_data_dir()
+
+
+def _managed_stockfish_path(data_dir: str | None = None) -> str:
+    """Where the `.app` / launcher downloads Stockfish when there's no system engine AND no
+    Homebrew (a clean Mac). It lives under DATA_DIR so it's shared by every entry point and
+    auto-detected here — the launcher also exports STOCKFISH_PATH to it, belt-and-suspenders."""
+    name = "stockfish.exe" if os.name == "nt" else "stockfish"
+    return os.path.join(data_dir or _resolve_data_dir(), "engine", name)
+
+
 # Common locations a Stockfish binary lands in across the package managers we point
 # users at. Searched (in order) only when STOCKFISH_PATH isn't set and `stockfish`
 # isn't on PATH, so a normal `brew`/`apt` install needs zero configuration.
@@ -27,9 +60,10 @@ def _resolve_stockfish() -> str:
     """Best-effort path to the Stockfish binary.
 
     Priority: an explicit STOCKFISH_PATH (honoured as set, resolved via PATH if it's a
-    bare command) -> `stockfish` on PATH -> the common install locations above. Falls
-    back to the bare name "stockfish" so the engine still raises a clear, actionable
-    error (see stockfish_install_hint) when nothing is found.
+    bare command) -> `stockfish` on PATH -> the common install locations above -> the
+    launcher-managed download under DATA_DIR (so a clean-Mac `.app` install that fetched
+    its own Stockfish is found with no config). Falls back to the bare name "stockfish" so
+    the engine still raises a clear, actionable error (see stockfish_install_hint).
     """
     explicit = os.environ.get("STOCKFISH_PATH", "").strip()
     if explicit:
@@ -40,6 +74,9 @@ def _resolve_stockfish() -> str:
     for path in _COMMON_STOCKFISH_PATHS:
         if os.path.isfile(path):
             return path
+    managed = _managed_stockfish_path()
+    if os.path.isfile(managed):
+        return managed
     return "stockfish"
 
 
@@ -114,28 +151,9 @@ USERNAME_ALIASES: list[tuple[str | None, str]] = _parse_aliases(os.environ.get("
 # (one person, several lichess/chess.com accounts) live in <DATA_DIR>/identities.json, and
 # a rebuildable per-player profile is cached in <DATA_DIR>/profiles/<player_id>.json.
 # CHESS_DATA_DIR overrides the location; CHESS_HISTORY=0 disables recording entirely.
-
-
-def _default_data_dir() -> str:
-    """User-level folder for history/cache/settings — the SHARED store.
-
-    Resolved per-OS to the conventional app-data location so every entry point on a machine lands
-    in the same place automatically: the MCP server (Claude Code) and the double-click `.app` thus
-    read/write ONE history + analysis cache + coaching profile, with no machine-specific config.
-    (The `.app` launcher also exports the macOS path explicitly, belt-and-suspenders.) Overridable
-    with CHESS_DATA_DIR; set it to ``<repo>/.chess-review`` to keep data inside a dev checkout.
-    """
-    home = os.path.expanduser("~")
-    if sys.platform == "darwin":
-        return os.path.join(home, "Library", "Application Support", "Tintin AI Chess Analysis", "data")
-    if os.name == "nt":
-        base = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
-        return os.path.join(base, "Tintin AI Chess Analysis", "data")
-    base = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
-    return os.path.join(base, "tintin-ai-chess-analysis", "data")
-
-
-DATA_DIR: str = os.environ.get("CHESS_DATA_DIR", "").strip() or _default_data_dir()
+# (_default_data_dir / _resolve_data_dir are defined near the top so Stockfish detection can
+# also see the managed-engine path under DATA_DIR.)
+DATA_DIR: str = _resolve_data_dir()
 HISTORY_ENABLED: bool = os.environ.get("CHESS_HISTORY", "1") != "0"
 
 # Disk cache of fully-analysed games (<DATA_DIR>/analysis-cache/<game_id>_<side>.json), keyed by
