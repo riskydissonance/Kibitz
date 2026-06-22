@@ -98,10 +98,6 @@
           <p class="muted chat-hint">
             Ask Snowie about the current board position (uses your Claude subscription).
           </p>
-          <label class="toggle chat-profile-toggle"
-            title="Include your cross-game history so Claude coaches you on recurring patterns. Turn off to send fewer tokens.">
-            <input type="checkbox" id="profile-toggle" checked /> Personalize with my history
-          </label>
           <div id="chat-messages" class="chat-messages"></div>
           <form id="chat-form" class="chat-form">
             <input id="chat-input" type="text" autocomplete="off"
@@ -186,11 +182,6 @@
           <span class="set-hint">Comma-separated handles that are also you — they fold into one profile.</span>
         </label>
 
-        <label class="set-field">
-          <span class="set-label">Lichess token <span class="set-opt">(optional)</span></span>
-          <input id="set-token" type="password" autocomplete="off" placeholder="for higher rate limits" />
-        </label>
-
         <label class="set-field set-check">
           <span class="set-check-row">
             <input id="set-coach-ai-auto" type="checkbox" />
@@ -200,15 +191,60 @@
             button under the board. The quick side-panel summary always shows.</span>
         </label>
 
+        <label class="set-field set-check">
+          <span class="set-check-row">
+            <input id="set-personalize" type="checkbox" />
+            <span class="set-label">Personalize AI coach with my history</span>
+          </span>
+          <span class="set-hint">Include your cross-game history so Snowie coaches you on recurring
+            patterns. Turn off to send fewer tokens.</span>
+        </label>
+
+        <label class="set-field set-check">
+          <span class="set-check-row">
+            <input id="set-skill-auto" type="checkbox" />
+            <span class="set-label">Auto-scale mistake sensitivity to each game's rating</span>
+          </span>
+          <span class="set-hint">On: reads each game's Elo from the PGN to decide how strict to be.
+            Turn off to set your own level.</span>
+        </label>
+
+        <div id="skill-manual" class="set-field" hidden>
+          <span class="set-label">Mistake sensitivity
+            <span class="set-opt" id="set-elo-label"></span></span>
+          <input id="set-elo" type="range" min="400" max="2400" step="50" value="1200" />
+          <div class="set-slider-ends"><span>More forgiving</span><span>Stricter</span></div>
+          <span class="set-hint">Higher flags subtler mistakes (and searches deeper); lower flags only
+            clearer blunders.</span>
+        </div>
+
+        <label class="set-field">
+          <span class="set-label">Coaching memory</span>
+          <select id="set-profile-mode">
+            <option value="balanced">Recent form + all-time (recommended)</option>
+            <option value="recent">Recent games only</option>
+            <option value="all">My whole history (weigh all equally)</option>
+            <option value="custom">Custom — set the windows below</option>
+          </select>
+          <span id="set-profile-hint" class="set-hint"></span>
+        </label>
+
         <details class="set-adv">
           <summary>Advanced</summary>
           <label class="set-field">
+            <span class="set-label">Lichess token <span class="set-opt">(optional)</span></span>
+            <input id="set-token" type="password" autocomplete="off" placeholder="for higher rate limits" />
+            <span class="set-hint">A personal access token raises your Lichess fetch rate limit. Leave blank for anonymous access.</span>
+          </label>
+          <label class="set-field">
             <span class="set-label">Recent-form window <span class="set-opt">(games)</span></span>
             <input id="set-recent" type="text" autocomplete="off" inputmode="numeric" />
+            <span class="set-hint">How many of your most recent games count as "current form" (0 = all games).</span>
           </label>
           <label class="set-field">
             <span class="set-label">Lifetime window <span class="set-opt">(all, 0, or a number)</span></span>
             <input id="set-lifetime" type="text" autocomplete="off" />
+            <span class="set-hint">All-time view layered on top: "all" = whole history, a number = last N, 0 = off.</span>
           </label>
           <label class="set-field">
             <span class="set-label">Stockfish path</span>

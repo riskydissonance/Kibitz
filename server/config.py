@@ -153,6 +153,11 @@ ANALYSIS_CACHE_MAX: int = int(os.environ.get("CHESS_ANALYSIS_CACHE_MAX", "1000")
 # each game opened; off by default (CHESS_COACH_AI_AUTO=1 to default it on).
 COACH_AI_AUTO: bool = os.environ.get("CHESS_COACH_AI_AUTO", "0") == "1"
 
+# Whether the in-browser "Ask your AI coach" chat injects the player's cross-game coaching profile
+# (recurring patterns from history) into the prompt. On by default; a Settings-panel toggle and
+# CHESS_PERSONALIZE_HISTORY=0 turn it off to send fewer tokens.
+PERSONALIZE_HISTORY: bool = os.environ.get("CHESS_PERSONALIZE_HISTORY", "1") == "1"
+
 # Self-terminate the server process after this many seconds of inactivity (no MCP tool call
 # and no board request), so an abandoned session doesn't linger as a process forever. Activity
 # resets the timer. Default 24h; CHESS_SESSION_TTL=0 disables the watchdog.
@@ -187,6 +192,23 @@ def _parse_lifetime(raw: str | None) -> int | None:
 
 PROFILE_LIFETIME: int | None = _parse_lifetime(os.environ.get("CHESS_PROFILE_LIFETIME"))
 
+
+def _parse_elo(raw: str | None) -> int | None:
+    """Optional player strength (normalized ~chess.com/FIDE Elo). Blank/garbled -> None (Auto)."""
+    raw = (raw or "").strip()
+    if not raw or raw.lower() == "auto":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+# The reviewed player's skill, used to tune how strict mistake detection is (stronger players get
+# smaller win%-drop cutoffs flagged + a deeper sweep). None = "Auto": read each game's Elo from the
+# PGN headers. A set value overrides the PGN. Surfaced editably in the Settings panel ("Skill level").
+PLAYER_ELO: int | None = _parse_elo(os.environ.get("CHESS_PLAYER_ELO"))
+
 # Lichess game import (so users don't paste PGNs). The fetch_games/fetch_game tools call the
 # public Lichess API. Auth is OPTIONAL: set LICHESS_TOKEN to a Personal Access Token
 # (https://lichess.org/account/oauth/token, no scopes needed for public game export) and requests
@@ -208,7 +230,7 @@ WEB_AUTOSTART: bool = os.environ.get("CHESS_WEB_AUTOSTART", "1") != "0"
 # Auto-open the board in the default browser the first time a game is analysed, so a
 # first-time user never has to be told the URL. Set CHESS_WEB_OPEN=0 to disable.
 WEB_OPEN: bool = os.environ.get("CHESS_WEB_OPEN", "1") != "0"
-# "App mode": set by the double-click launcher (Tintins AI Chess Analysis.command / .bat) when serving the
+# "App mode": set by the double-click launcher (Tintin's AI Chess Analysis.command / .bat) when serving the
 # board standalone for users who never touch a terminal. The frontend reads it via
 # /api/app-config and, when on, auto-loads the user's most recent Lichess game on open. Left off
 # (0) for the MCP-driven board and dev `run_web.py <pgn>` runs, so neither gets a surprise autoload.

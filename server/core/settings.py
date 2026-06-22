@@ -25,8 +25,10 @@ KEYS = (
     "lichess_token",
     "profile_recent",
     "profile_lifetime",
+    "player_elo",
     "stockfish_path",
     "coach_ai_auto",
+    "personalize_history",
 )
 
 
@@ -66,12 +68,16 @@ def apply(settings: dict) -> None:
             pass
     if "profile_lifetime" in settings:
         config.PROFILE_LIFETIME = config._parse_lifetime(str(settings["profile_lifetime"]))
+    if "player_elo" in settings:
+        config.PLAYER_ELO = config._parse_elo(str(settings["player_elo"]))
     if "stockfish_path" in settings:
         sp = (settings["stockfish_path"] or "").strip()
         if sp:
             config.STOCKFISH_PATH = shutil.which(sp) or sp
     if "coach_ai_auto" in settings:
         config.COACH_AI_AUTO = bool(settings["coach_ai_auto"])
+    if "personalize_history" in settings:
+        config.PERSONALIZE_HISTORY = bool(settings["personalize_history"])
 
 
 def apply_saved(data_dir: Optional[str] = None) -> dict:
@@ -93,8 +99,10 @@ def effective() -> dict:
         "lichess_token": config.LICHESS_TOKEN or "",
         "profile_recent": str(config.PROFILE_RECENT_WINDOW),
         "profile_lifetime": "all" if config.PROFILE_LIFETIME is None else str(config.PROFILE_LIFETIME),
+        "player_elo": "" if config.PLAYER_ELO is None else str(config.PLAYER_ELO),
         "stockfish_path": config.STOCKFISH_PATH or "",
         "coach_ai_auto": config.COACH_AI_AUTO,
+        "personalize_history": config.PERSONALIZE_HISTORY,
     }
 
 

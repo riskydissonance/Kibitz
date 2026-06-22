@@ -58,6 +58,8 @@ let appUsername = "";
 // an in-flight request when a new game is opened so a stale summary never lands on the wrong game.
 let coachAiAuto = false;
 let coachAiToken = 0;
+// Whether chat questions inject the cross-game coaching profile (a Settings option, default on).
+let personalizeHistory = true;
 
 const $ = (id) => document.getElementById(id);
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -675,7 +677,7 @@ async function sendChat(ev) {
         last_move: chatMove, // the move in question → "why is this bad?"
         move_fen: chatFen, // the position that move was played from
         session_id: chatSession,
-        use_profile: $("profile-toggle").checked, // personalize with cross-game history
+        use_profile: personalizeHistory, // personalize with cross-game history (Settings toggle)
       }),
     }).then((r) => r.json());
     pending.remove();
@@ -795,6 +797,7 @@ async function loadAll() {
     appMode = !!cfg.app_mode;
     appUsername = (cfg.default_username || "").trim();
     coachAiAuto = !!cfg.coach_ai_auto;
+    personalizeHistory = cfg.personalize_history !== false; // default on
   } catch (_) {}
   if (appUsername) $("lichess-user").placeholder = appUsername;
   if (appMode) startHeartbeat(); // so closing this tab quits the standalone app
@@ -1236,6 +1239,94 @@ function reflectSetAsMe(who) {
 }
 
 // --- settings panel ------------------------------------------------------
+// "Coaching memory" is a friendly single-choice front for the two profile windows
+// (profile_recent + profile_lifetime). Each preset sets both at once.
+const PROFILE_PRESETS = {
+  balanced: {
+    recent: "100", lifetime: "all",
+    hint: "Coaches on your last 100 games for current form, plus your whole history for long-term patterns.",
+  },
+  recent: {
+    recent: "100", lifetime: "0",
+    hint: "Focuses only on your last 100 games; older games are ignored.",
+  },
+  all: {
+    recent: "0", lifetime: "all",
+    hint: "Weighs every game you've played equally, recent or old.",
+  },
+};
+
+// The two Advanced number fields are the source of truth; the dropdown is a convenience that
+// fills them. Match the current field values to a preset (or "custom" for any other combination).
+function profileModeFromFields() {
+  const r = $("set-recent").value.trim();
+  const l = $("set-lifetime").value.trim().toLowerCase() || "all"; // blank lifetime == "all"
+  for (const [mode, p] of Object.entries(PROFILE_PRESETS)) {
+    if (r === p.recent && l === p.lifetime) return mode;
+  }
+  return "custom";
+}
+
+// Picking a named preset writes its windows into the Advanced fields.
+function applyProfilePreset() {
+  const p = PROFILE_PRESETS[$("set-profile-mode").value];
+  if (p) {
+    $("set-recent").value = p.recent;
+    $("set-lifetime").value = p.lifetime;
+  }
+  updateProfileHint();
+}
+
+// Editing a window by hand flips the dropdown to the matching preset (or "Custom").
+function syncProfileModeFromFields() {
+  $("set-profile-mode").value = profileModeFromFields();
+  updateProfileHint();
+}
+
+function updateProfileHint() {
+  const mode = $("set-profile-mode").value;
+  $("set-profile-hint").textContent = PROFILE_PRESETS[mode]
+    ? PROFILE_PRESETS[mode].hint
+    : "Using your own window sizes from Advanced below.";
+}
+
+// Mistake sensitivity: a checkbox auto-scales it to each game's PGN rating (default on). Unchecking
+// reveals a slider whose value is a representative Elo (stored as `player_elo`; blank = Auto). The
+// tier label tracks the same casual/intermediate/advanced/master bands the backend tunes against.
+const SKILL_DEFAULT_ELO = "1200"; // where the slider starts when first switching to manual
+
+// Named levels along the slider. Each entry is [minimum Elo, label]; the label shown is the highest
+// tier whose minimum the value has reached. Anchors: Beginner 400, Intermediate 1200, Advanced 1800,
+// Master 2300, with in-between levels so every slider stop reads as a recognisable strength.
+const SKILL_TIERS = [
+  [400, "Beginner"],
+  [700, "Novice"],
+  [1000, "Casual"],
+  [1200, "Intermediate"],
+  [1500, "Club player"],
+  [1800, "Advanced"],
+  [2100, "Expert"],
+  [2300, "Master"],
+];
+
+function eloTier(elo) {
+  let label = SKILL_TIERS[0][1];
+  for (const [min, name] of SKILL_TIERS) {
+    if (elo >= min) label = name;
+  }
+  return label;
+}
+
+// Show/hide the slider to match the checkbox and refresh the readout.
+function updateSkillUI() {
+  const auto = $("set-skill-auto").checked;
+  $("skill-manual").hidden = auto;
+  if (!auto) {
+    const elo = parseInt($("set-elo").value, 10);
+    $("set-elo-label").textContent = `${eloTier(elo)} · ~${elo} Elo`;
+  }
+}
+
 async function openSettings() {
   $("settings-status").textContent = "";
   let data;
@@ -1250,10 +1341,19 @@ async function openSettings() {
   $("set-username").value = s.username || "";
   $("set-aliases").value = s.aliases || "";
   $("set-token").value = s.lichess_token || "";
+  // Coaching memory: load the raw windows into the Advanced fields, then point the
+  // dropdown at whichever preset they match (or "Custom" for any other combination).
   $("set-recent").value = s.profile_recent || "";
   $("set-lifetime").value = s.profile_lifetime || "";
+  syncProfileModeFromFields();
+  // Mistake sensitivity: a stored rating means manual (slider shown); blank means auto-scale.
+  const elo = (s.player_elo || "").trim();
+  $("set-skill-auto").checked = !elo;
+  $("set-elo").value = elo || SKILL_DEFAULT_ELO;
+  updateSkillUI();
   $("set-stockfish").value = s.stockfish_path || "";
   $("set-coach-ai-auto").checked = !!s.coach_ai_auto; // auto-generate per game (default off)
+  $("set-personalize").checked = s.personalize_history !== false; // personalize chat (default on)
   $("set-sf-status").textContent = data.stockfish_ok
     ? "Stockfish engine found ✓"
     : "Stockfish not found — analysis won't run until this points at the engine.";
@@ -1268,11 +1368,15 @@ async function saveSettings(e) {
     username: $("set-username").value.trim(),
     aliases: $("set-aliases").value.trim(),
     lichess_token: $("set-token").value.trim(),
-    profile_recent: $("set-recent").value.trim(),
-    profile_lifetime: $("set-lifetime").value.trim(),
     stockfish_path: $("set-stockfish").value.trim(),
     coach_ai_auto: $("set-coach-ai-auto").checked,
+    personalize_history: $("set-personalize").checked,
   };
+  // The Advanced fields are the source of truth (the dropdowns just fill them).
+  patch.profile_recent = $("set-recent").value.trim();
+  patch.profile_lifetime = $("set-lifetime").value.trim();
+  // Auto-scale on -> blank (read each game's Elo); off -> the slider's chosen Elo.
+  patch.player_elo = $("set-skill-auto").checked ? "" : $("set-elo").value.trim();
   let res;
   try {
     res = await fetch("/api/settings", {
@@ -1294,6 +1398,7 @@ async function saveSettings(e) {
   // Apply the auto-summary preference without clobbering a summary that's already shown/pending:
   // only act when nothing's there yet (turn-on -> generate now; turn-off -> offer the button).
   coachAiAuto = !!(res.settings && res.settings.coach_ai_auto);
+  personalizeHistory = !(res.settings && res.settings.personalize_history === false);
   const card = $("coach-ai");
   const busy = card && !card.hidden && !card.classList.contains("err");
   if (timeline.length && !busy) {
@@ -1432,6 +1537,11 @@ function init() {
   $("settings-toggle").addEventListener("click", openSettings);
   $("settings-cancel").addEventListener("click", () => ($("settings").hidden = true));
   $("settings-form").addEventListener("submit", saveSettings);
+  $("set-profile-mode").addEventListener("change", applyProfilePreset);
+  $("set-recent").addEventListener("input", syncProfileModeFromFields);
+  $("set-lifetime").addEventListener("input", syncProfileModeFromFields);
+  $("set-skill-auto").addEventListener("change", updateSkillUI);
+  $("set-elo").addEventListener("input", updateSkillUI);
   // First-run escape for non-Lichess (e.g. Chess.com) users: jump straight to Paste PGN.
   $("firstrun-paste").addEventListener("click", () => {
     $("firstrun").hidden = true;

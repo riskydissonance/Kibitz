@@ -121,13 +121,16 @@ def _resolve_review_elo(
 ) -> tuple[float | None, str | None]:
     """Resolve the normalized review Elo + where it came from.
 
-    Priority: explicit `elo` (taken as already-normalized) > named `sensitivity` > the PGN's
-    WhiteElo/BlackElo for the reviewed side (normalized by detected platform) > None (default).
+    Priority: explicit `elo` (taken as already-normalized) > named `sensitivity` > the user's
+    configured skill (`config.PLAYER_ELO`, the Settings "Skill level") > the PGN's WhiteElo/BlackElo
+    for the reviewed side (normalized by detected platform) > None (default).
     """
     if elo is not None:
         return float(elo), "explicit"
     if sensitivity and sensitivity.lower() in _SENSITIVITY_ELO:
         return _SENSITIVITY_ELO[sensitivity.lower()], f"sensitivity:{sensitivity.lower()}"
+    if config.PLAYER_ELO is not None:
+        return float(config.PLAYER_ELO), "settings"
     raw = headers.get("WhiteElo" if me == "white" else "BlackElo", "").strip()
     if raw.isdigit():
         platform = _detect_platform(headers)

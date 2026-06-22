@@ -1,0 +1,32 @@
+Tintin's AI Chess Analysis — START HERE
+=======================================
+
+Analyze your chess games with Stockfish and get your mistakes explained in
+plain words. Pick the ONE option that matches what you want:
+
+
+🎯  I JUST WANT TO REVIEW MY GAMES  (no terminal needed)
+--------------------------------------------------------
+  • macOS:    Get "Tintin's AI Chess Analysis.app" from the Releases page,
+              drag it into Applications, then right-click it → Open.
+              (Releases: https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases)
+
+  • Windows:  Double-click  "Tintin's AI Chess Analysis.bat"
+  • Linux:    Double-click  "Tintin's AI Chess Analysis.command"
+
+  The first launch sets everything up (needs internet once), then opens a
+  chess board in your browser. Review a game from anywhere: paste or upload
+  a PGN (Chess.com, OTB, any site), or — if you play on Lichess — just enter
+  your username and it loads your recent games for you.
+  To quit: just close the browser tab.
+
+
+🤖  I WANT IT INSIDE CLAUDE CODE  (the MCP server, for terminal users)
+---------------------------------------------------------------------
+  • macOS / Linux:   ./install.sh
+  • Windows:         powershell -ExecutionPolicy Bypass -File .\install.ps1
+
+  Then reload Claude Code, paste a PGN, and say "analyze this game."
+
+
+Full details, options, and configuration are in README.md.

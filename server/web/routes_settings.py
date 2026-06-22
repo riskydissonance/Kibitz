@@ -25,8 +25,10 @@ class SettingsPatch(BaseModel):
     lichess_token: str | None = None
     profile_recent: str | None = None
     profile_lifetime: str | None = None
+    player_elo: str | None = None
     stockfish_path: str | None = None
     coach_ai_auto: bool | None = None
+    personalize_history: bool | None = None
 
 
 def _stockfish_ok(path: str) -> bool:

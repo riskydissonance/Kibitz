@@ -453,7 +453,6 @@ main {
 .chat-panel { border-top: 1px solid #000; padding-top: 12px; }
 .chat-panel h2 { color: var(--text); }
 .chat-hint { margin: 0 0 6px; }
-.chat-profile-toggle { display: inline-block; margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
 
 .chat-messages {
   display: flex;
@@ -653,12 +652,17 @@ body.history-hidden .history-col { display: none; }
 .set-field { display: flex; flex-direction: column; gap: 5px; }
 .set-label { font-size: 13px; font-weight: 600; color: var(--text); }
 .set-opt { font-weight: 400; color: var(--muted); font-size: 12px; }
-.set-field input {
+.set-field input, .set-field select {
   background: #1d1b16; border: 1px solid #4a4636; border-radius: 6px;
   color: var(--text); padding: 8px 10px; font-size: 13px; width: 100%;
 }
-.set-field input:focus { outline: none; border-color: var(--accent); }
+.set-field input:focus, .set-field select:focus { outline: none; border-color: var(--accent); }
 .set-hint { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.set-field[hidden] { display: none; } /* beat .set-field's display:flex when toggled off */
+.set-field input[type="range"] {
+  padding: 0; border: none; background: none; accent-color: var(--accent); cursor: pointer;
+}
+.set-slider-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
 /* checkbox field: lay the box + label on one row, and undo the full-width text-input styling. */
 .set-check { cursor: pointer; }
 .set-check-row { display: flex; align-items: center; gap: 8px; }

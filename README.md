@@ -1,11 +1,17 @@
 # Chess Review MCP
 
 Analyze a chess game (PGN) with **Stockfish**, find where you went wrong, and, unlike a bare
-engine, get the mistakes **explained in words**, grounded in real engine lines. It runs two ways:
-from the **Claude Code terminal** (as an MCP server) and as an **interactive web board** (a
-Lichess-style review UI) that share one engine and one analysis, so they never disagree.
+engine, get the mistakes **explained in words**, grounded in real engine lines. Works with games
+from **anywhere** — Lichess, Chess.com, or any PGN you can paste — and Lichess players get a few
+extras (fetch your recent games by username, auto-load on launch). It runs two ways: from the
+**Claude Code terminal** (as an MCP server) and as an **interactive web board** that share one
+engine and one analysis, so they never disagree.
 
 ![Chess Review board: the board with played, best, and refutation arrows, an eval bar, a win graph, the mistake list, the Snowie AI coach, and the Games panel](docs/screenshots/chess_new_pipeline.png)
+
+> **New here? Pick your goal:**
+> - 🎯 **I just want to review my games** → [get the app](#-i-just-want-to-review-my-games) (download on Mac, or double-click the launcher on Windows/Linux — it sets itself up).
+> - 🤖 **I want chess analysis inside Claude Code** → [run the installer](#-i-want-it-inside-claude-code).
 
 ---
 
@@ -26,8 +32,8 @@ Lichess-style review UI) that share one engine and one analysis, so they never d
   (your Claude subscription), fed pre-computed engine facts so answers are grounded, not estimated.
 - **Cross-game history + coaching profile.** Every reviewed game is saved locally, tagged with
   recurring mistake motifs (hung pieces, missed forks, back-rank, time trouble…), and rolled up
-  into a per-player profile. Toggle **"Personalize with my history"** in the chat and Claude can
-  draw on your recurring patterns — only when they actually bear on the position in front of you.
+  into a per-player profile. With **"Personalize AI coach with my history"** on (in **⚙ Settings**),
+  Claude can draw on your recurring patterns — only when they actually bear on the position at hand.
 
 <!-- TODO: screenshot of the mistake list + the engine-grounded comment box.
      Show the right-sidebar "Mistakes" list and, below the board, the green comment box for a
@@ -54,14 +60,62 @@ shells out to headless `claude -p` (your subscription).
 
 ## Installation
 
-### Quick install (recommended)
+There are only **two** things you might want, so pick one:
 
-One command sets up everything — it installs [uv](https://docs.astral.sh/uv/) (which downloads a
-compatible Python for you, so your own Python version doesn't matter), installs Stockfish, builds
-the environment, and saves your username. **You do not need Python or any prior setup.**
+| Your goal | Go to |
+| --- | --- |
+| 🎯 **Just review my chess games** (from Lichess, Chess.com, or any PGN) | [I just want to review my games](#-i-just-want-to-review-my-games) |
+| 🤖 **Use chess analysis inside Claude Code** (the MCP server) | [I want it inside Claude Code](#-i-want-it-inside-claude-code) |
+
+Either way you need **nothing installed first** — no Python, no Stockfish. The app/installer fetches
+everything (it uses [uv](https://docs.astral.sh/uv/) to download a compatible Python for you).
+
+### 🎯 I just want to review my games
+
+Zero terminal required. Open the app and it brings up a chess board in your browser, ready to
+review a game from **any source** — paste or upload a PGN (Chess.com, OTB, anywhere), or, if you
+play on **Lichess**, just give it your username and it loads your recent games for you.
+
+**macOS — the app.** Download **`Tintin's AI Chess Analysis.app`** (from the
+[Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases)), drag it into
+**Applications**, and open it.
+
+- **First open:** it's unsigned, so macOS Gatekeeper needs **right-click → Open → Open** once.
+- The app installs Stockfish + its Python env on first run (needs internet once), then opens the
+  board. Its environment and your games/settings live in
+  `~/Library/Application Support/Tintin AI Chess Analysis/`, **outside** the app, so your data
+  survives updates. Setup problems show in a dialog; logs go to that folder's `launch.log`.
+
+**Windows / Linux — the double-click launcher.** From the repo folder, double-click:
+
+- **Windows:** **`Tintin's AI Chess Analysis.bat`** (if SmartScreen warns: **More info → Run anyway**)
+- **Linux:** **`Tintin's AI Chess Analysis.command`**
+
+The **first launch** installs everything (uv + Stockfish + the env); every launch after opens
+straight to the board.
+
+**Once the board is open (any platform), load a game from wherever you play** — via the **Games**
+panel (☰), which has three tabs:
+
+- **Paste PGN** — works for *everyone*. Paste any PGN, or **Upload .pgn** a file (e.g. a Chess.com
+  export of one *or many* games), pick your side, and click **Analyze**; all games land in **My
+  games**. This is the universal path — no account of any kind needed.
+- **Lichess** *(bonus for Lichess players)* — type any handle to fetch that player's recent games,
+  and click **"Set as my account"** to make it yours: that drives **My games**, your coaching
+  profile, and (in the app) auto-loading your latest game on launch.
+- **My games** — your previously-analyzed games, to reopen instantly.
+
+Your account/username is set under **⚙ Settings → Your username** (or the Lichess panel's button)
+and saved server-side, so it's the same everywhere. **To quit:** just close the browser tab — the
+server stops a few seconds later (and the launcher's terminal window closes itself).
+
+### 🤖 I want it inside Claude Code
+
+Run the one-command installer from the repo root, then reload Claude Code — the `chess` MCP server
+is already registered in `.mcp.json` (no path editing; it runs via `uv`, which is machine-independent).
 
 ```bash
-# macOS / Linux — from the repo root
+# macOS / Linux
 ./install.sh
 ```
 
@@ -70,94 +124,34 @@ the environment, and saves your username. **You do not need Python or any prior 
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-The script is safe to re-run (each step is skipped if already done) and finishes with a self-check.
-You can run that check any time:
+The script is safe to re-run (each step is skipped if already done), prompts for your username, and
+finishes with a self-check you can re-run any time:
 
 ```bash
 uv run python -m server.doctor
 ```
 
-That's it — skip to [Usage](#usage). The MCP server is already registered in `.mcp.json` (no path
-editing needed: it runs via `uv`, which is machine-independent); the only thing worth setting is
-your username, which the installer prompts for.
+Then open Claude Code in this folder, paste a PGN, and say *"analyze this game."* You also get the
+web board for free — see [Usage](#usage).
 
-### Just want to review your Lichess games? Double-click **Tintins AI Chess Analysis**
+<details>
+<summary>Advanced: build the macOS .app yourself, or skip uv</summary>
 
-If you don't want to touch a terminal at all, use the double-click launcher:
-
-- **macOS / Linux:** double-click **`Tintins AI Chess Analysis.command`**
-- **Windows:** double-click **`Tintins AI Chess Analysis.bat`**
-
-The **first launch** installs everything for you (uv + Stockfish + the project env — it just runs
-the installer above), then opens the board in your browser with your **most recent Lichess game**
-already loaded. Every launch after that skips straight to opening the board.
-
-- **First time only:** macOS may block a double-clicked script — **right-click → Open**, then
-  **Open** again. On Windows, if SmartScreen warns, click **More info → Run anyway**.
-- **Which account?** It defaults to your configured username (**⚙ Settings → Your username**, or the
-  `CHESS_USERNAME` saved at install time). In the board's **Lichess** panel you can look up any handle
-  and click **"Set as my account"**; if no username is configured, the app asks for one on first open.
-  The choice is saved server-side (in `settings.json`), so it's the same account everywhere.
-- **No Lichess account (e.g. Chess.com)?** Use the **Paste PGN** tab in the Games panel — paste any
-  PGN, or **Upload .pgn** a Chess.com export of one *or many* games, and click **Analyze**; all the
-  games are reviewed into **My games**. The first-run prompt also has a "Paste a PGN instead" shortcut.
-- **To quit:** just close the browser tab — the server stops a few seconds later and its terminal
-  window closes itself. (You can also close that window directly, or press Ctrl-C in it.)
-
-#### Prefer a real macOS app in /Applications? Build the `.app` bundle
-
-For an Anki-style experience — an icon you drag into **Applications** and double-click, with **no
-terminal window at all** — build a native `.app` wrapper:
+**Build the `.app` from source** (instead of downloading it) — produces the same bundle the
+Releases page ships:
 
 ```bash
 ./scripts/build_app.sh        # → Tintin's AI Chess Analysis.app (in the repo root)
 ```
 
-Then drag `Tintin's AI Chess Analysis.app` into **/Applications** and double-click it. Behaviour
-is identical to the `.command` launcher (first run installs uv + Stockfish; later runs open straight to
-the board; close the tab to quit), with two niceties: it runs as a GUI app (no Terminal window), and
-its Python environment + your games/settings live in
-`~/Library/Application Support/Tintin AI Chess Analysis/` — **outside** the bundle, so the app stays
-immutable and your data survives a rebuild or update.
+Drag it into **/Applications** and open it (first time: **right-click → Open**). The bundle is
+immutable at runtime; its Python env + your data live under
+`~/Library/Application Support/Tintin AI Chess Analysis/`. To customise the icon, replace
+`assets/app_icon.png` (1024×1024) or drop an `assets/AppIcon.icns`, then rebuild. It still needs the
+network on first run and the `claude` CLI for the in-browser chat.
 
-- **First open:** unsigned, so macOS Gatekeeper needs **right-click → Open → Open** once.
-- **Icon:** ships with the site's chess-pawn favicon (`assets/app_icon.png`). To customise, replace
-  that file (1024×1024) or drop an `assets/AppIcon.icns`, then rebuild.
-- **Setup problems** are shown in a dialog; full logs go to
-  `~/Library/Application Support/Tintin AI Chess Analysis/launch.log`.
-- It still needs the network on first run (to fetch uv + Python + Stockfish) and the `claude` CLI for
-  the in-browser chat — for a fully offline, dependency-free bundle you'd need a PyInstaller build.
-
-### Prerequisites (what the installer handles for you)
-
-- **Stockfish** engine (the installer adds it via `brew` / `apt` / `winget`). The tool auto-detects
-  a normal install, so no path configuration is needed. To use a custom build, set `STOCKFISH_PATH`.
-- **Internet connection** for the web board's first load (chessground / chess.js come from a CDN, so
-  there's no Node/npm build step).
-- *(Optional, only for the in-browser chat and the Claude Code terminal workflow)* the **`claude`
-  CLI** (Claude Code), installed and logged in (`claude login`). The web board's game review works
-  without it.
-
-### Manual setup (if you'd rather not use the script)
-
-You still want **uv** — it removes the Python-version headaches. [Install
-uv](https://docs.astral.sh/uv/getting-started/installation/), then:
-
-```bash
-uv sync                 # builds the env + fetches a compatible Python
-# install Stockfish yourself: macOS `brew install stockfish`,
-#   Debian/Ubuntu `sudo apt install stockfish`, or https://stockfishchess.org/download/
-uv run python -m server.doctor   # confirm Python + Stockfish are good
-```
-
-Then open `.mcp.json` and set `CHESS_USERNAME` to your handle (it's what lets
-`analyze_game(player="auto")` figure out which side is "you" from the PGN headers). You shouldn't
-need to touch `command`/`args` — they invoke the project through `uv`.
-
-<details>
-<summary>Prefer a plain venv / conda instead of uv?</summary>
-
-The project is a standard `pyproject.toml`, so it works in any Python 3.11+ environment:
+**Skip uv (plain venv / conda).** The project is a standard `pyproject.toml`, so any Python 3.11+
+environment works:
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate   # or conda
@@ -167,7 +161,18 @@ pip install -r requirements.txt
 Then in `.mcp.json` set `"command"` to that interpreter's absolute path (e.g.
 `/abs/path/.venv/bin/python`) and `"args"` to `["-m", "server.mcp_server"]`, and run scripts with
 that interpreter instead of `uv run python`.
+
 </details>
+
+### Prerequisites (what the app/installer handles for you)
+
+- **Stockfish** engine (the installer adds it via `brew` / `apt` / `winget`). The tool auto-detects
+  a normal install, so no path configuration is needed. To use a custom build, set `STOCKFISH_PATH`.
+- **Internet connection** for the web board's first load (chessground / chess.js come from a CDN, so
+  there's no Node/npm build step).
+- *(Optional, only for the in-browser chat and the Claude Code terminal workflow)* the **`claude`
+  CLI** (Claude Code), installed and logged in (`claude login`). The web board's game review works
+  without it.
 
 ---
 
@@ -292,10 +297,10 @@ opt in).
 - **Coaching profile.** Records roll up into a **hybrid** profile: a `recent` sliding window (so
   weaknesses you've fixed fade out) plus a `lifetime` view, with an "improving / slipping" trend.
   Get it from the terminal with `mcp__chess__get_player_profile`, or let the board's chat use it.
-- **Personalized chat.** The chat panel's **"Personalize with my history"** toggle attaches the
-  profile to your question so Claude can connect the position to your recurring patterns. It's
-  designed to stay subtle — Claude only brings up your history when it genuinely sharpens the
-  answer, not in every reply.
+- **Personalized chat.** The **"Personalize AI coach with my history"** option in **⚙ Settings**
+  (on by default) attaches the profile to your chat questions so Claude can connect the position to
+  your recurring patterns. It's designed to stay subtle — Claude only brings up your history when it
+  genuinely sharpens the answer, not in every reply.
 
 ### Who is "you"? (identity & aliases)
 

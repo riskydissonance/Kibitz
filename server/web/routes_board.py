@@ -58,6 +58,7 @@ def get_app_config() -> dict:
         "app_mode": config.APP_MODE,
         "default_username": config.USERNAME or "",
         "coach_ai_auto": config.COACH_AI_AUTO,  # auto-press the AI-summary button on each game?
+        "personalize_history": config.PERSONALIZE_HISTORY,  # inject coaching profile into chat?
     }
 
 
