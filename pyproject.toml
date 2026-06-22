@@ -1,6 +1,6 @@
 [project]
 name = "chess-review-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local chess review tool: PGN -> Stockfish analysis -> mistakes explained in words, driven from Claude Code via MCP."
 requires-python = ">=3.11"
 dependencies = [
@@ -33,3 +33,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server"]
+
+# The no-build frontend lives at the repo root (a sibling of `server/`), so a plain wheel install
+# (what `uv run` does for the MCP server) would NOT ship it — the board would serve the API but
+# 404 at `/`. Force it into the package as `server/_frontend/` so an installed wheel always has the
+# UI; `server.web.app` resolves that location first and falls back to the repo `frontend/` for
+# source/editable runs.
+[tool.hatch.build.targets.wheel.force-include]
+"frontend" = "server/_frontend"

@@ -9,6 +9,13 @@ engine and one analysis, so they never disagree.
 
 ![Chess Review board: the board with played, best, and refutation arrows, an eval bar, a win graph, the mistake list, the Snowie AI coach, and the Games panel](docs/screenshots/chess_new_pipeline.png)
 
+> **Requires a Claude subscription.** The AI-coach explanations and chat (Snowie) — the whole
+> "explained in words" part — run on **headless `claude`, using your existing Claude
+> subscription** (no API key, no per-token billing). You need the [`claude`
+> CLI](https://docs.claude.com/en/docs/claude-code/overview) installed and logged in
+> (`claude login`). The engine review itself (mistake list, eval bar, win graph, arrows) works
+> without it, but the word explanations are the point of the tool.
+
 > **New here? Pick your goal:**
 > - 🎯 **I just want to review my games** → [get the app](#-i-just-want-to-review-my-games) (download on Mac, or double-click the launcher on Windows/Linux — it sets itself up).
 > - 🤖 **I want chess analysis inside Claude Code** → [run the installer](#-i-want-it-inside-claude-code).
@@ -76,6 +83,7 @@ Zero terminal required. Open the app and it brings up a chess board in your brow
 review a game from **any source** — paste or upload a PGN (Chess.com, OTB, anywhere), or, if you
 play on **Lichess**, just give it your username and it loads your recent games for you.
 
+<a id="review-mac"></a>
 **macOS — the app.** Download **`Tintin's AI Chess Analysis.app`** (from the
 [Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases)), drag it into
 **Applications**, and open it.
@@ -89,6 +97,7 @@ play on **Lichess**, just give it your username and it loads your recent games f
   `~/Library/Application Support/Tintin AI Chess Analysis/`, **outside** the app, so your data
   survives updates. Setup problems show in a dialog; logs go to that folder's `launch.log`.
 
+<a id="review-windows-linux"></a>
 **Windows / Linux — the double-click launcher.** From the repo folder, double-click:
 
 - **Windows:** **`Tintin's AI Chess Analysis.bat`** (if SmartScreen warns: **More info → Run anyway**)
@@ -174,9 +183,11 @@ that interpreter instead of `uv run python`.
   a normal install, so no path configuration is needed. To use a custom build, set `STOCKFISH_PATH`.
 - **Internet connection** for the web board's first load (chessground / chess.js come from a CDN, so
   there's no Node/npm build step).
-- *(Optional, only for the in-browser chat and the Claude Code terminal workflow)* the **`claude`
-  CLI** (Claude Code), installed and logged in (`claude login`). The web board's game review works
-  without it.
+- **A Claude subscription + the `claude` CLI** (Claude Code), installed and logged in
+  (`claude login`) — required for the AI-coach explanations and chat (Snowie) and for the Claude
+  Code terminal workflow. It runs on your **existing subscription**, no API key or per-token
+  billing. The web board's bare engine review (mistakes, eval bar, arrows) works without it, but the
+  plain-English explanations — the point of the tool — do not.
 
 ---
 

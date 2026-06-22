@@ -244,6 +244,7 @@ section .lead {
 }
 .start-steps h3 { margin: 0 0 8px; font-size: 16px; }
 .start-steps p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.start-steps .opt-readme { margin-top: 12px; font-size: 13.5px; }
 code {
   font-family: ui-monospace, Menlo, monospace;
   background: var(--panel2);
