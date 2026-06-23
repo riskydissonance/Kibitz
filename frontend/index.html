@@ -73,6 +73,8 @@
           <label class="toggle" title="Toggle best-move arrows (l)">
             <input type="checkbox" id="best-toggle" /> Show best move
           </label>
+          <button id="flip-review" type="button" hidden
+            title="Re-analyse this same game from the other player's perspective (in case the wrong side was picked)">↺ Review other side</button>
         </div>
 
         <div id="status" class="status"></div>
@@ -157,19 +159,23 @@
       </aside>
     </main>
 
-    <!-- First-run prompt (app mode only): shown when there's no configured/saved Lichess account. -->
+    <!-- First-run prompt (app mode only): shown when there's no configured/saved account. Two
+         fields — fill in either. A Lichess handle auto-opens your latest game; a Chess.com handle
+         (no public fetch API) just labels your pasted/uploaded games as "you". More accounts can be
+         added later in ⚙ Settings → Advanced. -->
     <div id="firstrun" class="firstrun-overlay" hidden>
       <form id="firstrun-form" class="firstrun-card">
         <h2>Welcome to Tintin's AI Chess Analysis</h2>
-        <p class="muted">Enter your Lichess username to open your most recent game.</p>
-        <input id="firstrun-user" type="text" autocomplete="off" placeholder="lichess username" />
-        <label class="toggle">
-          <input type="checkbox" id="firstrun-remember" checked /> Save as my account
+        <p class="muted">Enter your chess username so we can find your games. Fill in whichever you use.</p>
+        <label class="set-field">
+          <span class="set-label">Lichess username</span>
+          <input id="firstrun-user" type="text" autocomplete="off" placeholder="lichess username" />
         </label>
-        <button type="submit">Open my latest game</button>
-        <button type="button" id="firstrun-paste" class="linklike">
-          No Lichess account? Paste a PGN instead
-        </button>
+        <label class="set-field">
+          <span class="set-label">Chess.com username</span>
+          <input id="firstrun-chesscom-user" type="text" autocomplete="off" placeholder="ChessComUsername" />
+        </label>
+        <button type="submit">Continue</button>
       </form>
     </div>
 
@@ -178,15 +184,17 @@
       <form id="settings-form" class="firstrun-card settings-card">
         <h2>Settings</h2>
         <label class="set-field">
-          <span class="set-label">Your username</span>
-          <input id="set-username" type="text" autocomplete="off" placeholder="your Lichess / Chess.com handle" />
-          <span class="set-hint">Decides which side is “you”, your <b>My games</b>, and your coaching profile.</span>
+          <span class="set-label">Lichess username <span class="set-opt">(optional)</span></span>
+          <input id="set-username" type="text" autocomplete="off" placeholder="your Lichess handle" />
+          <span class="set-hint">Lets the app auto-open your latest game, and decides which side is
+            “you”, your <b>My games</b>, and your coaching profile.</span>
         </label>
 
         <label class="set-field">
-          <span class="set-label">Other accounts <span class="set-opt">(optional)</span></span>
-          <input id="set-aliases" type="text" autocomplete="off" placeholder="chesscom:myhandle, my_other_lichess" />
-          <span class="set-hint">Comma-separated handles that are also you — they fold into one profile.</span>
+          <span class="set-label">Chess.com username <span class="set-opt">(optional)</span></span>
+          <input id="set-chesscom" type="text" autocomplete="off" placeholder="ChessComUsername" />
+          <span class="set-hint">So your pasted / uploaded Chess.com games are recognised as
+            yours and folded into the same profile.</span>
         </label>
 
         <label class="set-field set-check">
@@ -238,6 +246,12 @@
 
         <details class="set-adv">
           <summary>Advanced</summary>
+          <label class="set-field">
+            <span class="set-label">Other accounts <span class="set-opt">(optional)</span></span>
+            <input id="set-aliases" type="text" autocomplete="off" placeholder="my_other_lichess, another_handle" />
+            <span class="set-hint">Any additional handles that are also you (comma-separated) — they
+              fold into one profile. Pin one to a site with “chesscom:handle” if a name clashes.</span>
+          </label>
           <label class="set-field">
             <span class="set-label">Lichess token <span class="set-opt">(optional)</span></span>
             <input id="set-token" type="password" autocomplete="off" placeholder="for higher rate limits" />

@@ -21,6 +21,7 @@ router = APIRouter()
 
 class SettingsPatch(BaseModel):
     username: str | None = None
+    chesscom_username: str | None = None
     aliases: str | None = None
     lichess_token: str | None = None
     profile_recent: str | None = None

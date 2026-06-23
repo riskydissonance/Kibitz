@@ -84,9 +84,9 @@ review a game from **any source** — paste or upload a PGN (Chess.com, OTB, any
 play on **Lichess**, just give it your username and it loads your recent games for you.
 
 <a id="review-mac"></a>
-**macOS — the app.** Download **`Tintin's AI Chess Analysis.app`** (from the
-[Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases)), drag it into
-**Applications**, and open it.
+**macOS — the app.** Download the zip from the
+[Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases). Unzipping it
+gives you **`Tintin's AI Chess Analysis.app`**. Drag that into **Applications**, and open it.
 
 - **First open:** it's unsigned, so macOS blocks it once. Double-click it (you'll get a "cannot
   verify" / "blocked" message — click **Done**), then go to **System Settings → Privacy &

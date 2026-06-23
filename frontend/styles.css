@@ -734,6 +734,9 @@ body.history-hidden .history-col { display: none; }
 .history li:hover { background: var(--panel2); }
 .history li.disabled { cursor: default; opacity: 0.5; }
 .history li.disabled:hover { background: var(--panel); }
+/* Games recorded under "you" — a subtle green-tinted tone vs. the neutral panel of other games. */
+.history li.mine { background: #232a1f; }
+.history li.mine:hover { background: #2d3527; }
 .history li.win { border-left-color: var(--accent); }
 .history li.loss { border-left-color: var(--blunder); }
 .history li.draw { border-left-color: var(--muted); }

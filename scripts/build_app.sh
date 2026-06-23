@@ -216,6 +216,14 @@ if curl -fsS "${URL}/api/app-config" >/dev/null 2>&1; then
   exit 0
 fi
 
+# A GUI launch shows NO window while the (slow, one-time) install + engine download run — so users
+# think the app is frozen. Open a loading splash in the browser immediately: it polls the board URL
+# and replaces itself with the real app the moment the server is up. CHESS_WEB_OPEN=0 (set below)
+# stops the server opening a second tab. Spaces in the bundle path → %20 for a valid file:// URL.
+SPLASH="file://${REPO// /%20}/frontend/loading.html#${HOST}:${PORT}"
+echo "Opening loading splash: $SPLASH"
+open "$SPLASH" || true
+
 # 1) uv — manages Python + deps (self-contained; no pre-existing Python needed).
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv…"
@@ -260,6 +268,7 @@ echo "Syncing Python environment into $ENV_DIR …"
 #    tree) so closing the browser tab — or quitting the app — stops the server cleanly.
 export CHESS_APP_MODE=1
 export CHESS_DATA_DIR="$DATA_DIR"
+export CHESS_WEB_OPEN=0            # the splash tab opened above redirects itself — don't open another
 export PYTHONDONTWRITEBYTECODE=1   # don't try to write .pyc into the read-only bundle
 echo "Starting board at ${URL}"
 cd "$REPO"

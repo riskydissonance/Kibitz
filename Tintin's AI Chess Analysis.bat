@@ -25,6 +25,13 @@ if %errorlevel%==0 (
   exit /b 0
 )
 
+REM Open a loading splash in the browser RIGHT NOW so first-time users see progress while the
+REM (slow, one-time) install + engine download run - instead of a blank screen that looks frozen.
+REM It polls the board URL and swaps itself for the real app once the server is up; CHESS_WEB_OPEN=0
+REM (below) stops the server opening a second tab. (%CD:\=/% turns the path into a file:// URL.)
+set "SPLASH=file:///%CD:\=/%/frontend/loading.html#%CHESS_WEB_HOST%:%CHESS_WEB_PORT%"
+start "" "%SPLASH%"
+
 REM First-run install: no uv, or the project env hasn't been built yet.
 where uv >nul 2>&1
 if errorlevel 1 goto install
@@ -39,4 +46,5 @@ set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 :launch
 echo Starting Tintin's AI Chess Analysis... keep this window open; close it to quit.
 set "CHESS_APP_MODE=1"
+set "CHESS_WEB_OPEN=0"
 uv run python scripts\run_web.py --serve

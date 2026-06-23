@@ -9,6 +9,11 @@ let timeline = []; // nodes 0..N for the whole game
 let mistakes = [];
 let player = "white"; // the reviewed side (drives the header label)
 let orient = "white"; // board orientation; starts at `player` but the `f` hotkey flips it
+// Current game's PGN + player names, so "Review other side" can re-open the same game reviewing
+// the opponent without a refetch. Set when a game is opened (provisional) and on /session.
+let currentPgn = null;
+let gameWhite = "";
+let gameBlack = "";
 
 let cur = 0; // current timeline node (valid when !exploring)
 let anchorNode = 0; // the review (mistake) node we started from
@@ -49,10 +54,13 @@ let historyCount = 10; // how many to show now ("Show more" grows it)
 const HISTORY_PAGE = 10; // initial count + how many more each "Show more"
 
 // App mode (double-click launcher): on open, auto-load the user's most recent game.
-// `appUsername` is the single, server-side identity (config.USERNAME, editable in Settings) — used
-// for autoload, "My games", and the coaching profile, so there's one source of truth.
+// `appUsername` is the Lichess handle (config.LICHESS_USERNAME) — the only autoloadable identity, so
+// it drives "open my latest game" and the Lichess panel placeholder. `chesscomUsername` is the
+// configured chess.com handle; chess.com has no public fetch API, so it can't autoload — it only
+// tells the first-run flow not to re-prompt and routes the user to Paste / Upload PGN instead.
 let appMode = false;
 let appUsername = "";
+let chesscomUsername = "";
 // On-demand Claude-written end-of-game summary: generated when the user presses the button, or
 // automatically per game when `coachAiAuto` is on (a Settings option). `coachAiToken` invalidates
 // an in-flight request when a new game is opened so a stale summary never lands on the wrong game.
@@ -705,6 +713,11 @@ function applySession(session) {
     `${session.white} vs ${session.black} — ${session.result} · reviewing ${session.player} ` +
     `(acc W ${session.accuracy_white} / B ${session.accuracy_black}) · ${session.num_mistakes} mistakes${sens}`;
   mistakes = session.mistakes;
+  // Remember the game (PGN + names) so "Review other side" can re-open it for the opponent.
+  if (session.pgn) currentPgn = session.pgn;
+  gameWhite = session.white || gameWhite;
+  gameBlack = session.black || gameBlack;
+  updateFlipReviewButton();
   renderMistakeList();
   renderScoreboard(session);
   renderCoach(session);
@@ -795,7 +808,8 @@ async function loadAll() {
   try {
     const cfg = await fetch("/api/app-config").then((r) => r.json());
     appMode = !!cfg.app_mode;
-    appUsername = (cfg.default_username || "").trim();
+    appUsername = (cfg.lichess_username || "").trim();
+    chesscomUsername = (cfg.chesscom_username || "").trim();
     coachAiAuto = !!cfg.coach_ai_auto;
     personalizeHistory = cfg.personalize_history !== false; // default on
   } catch (_) {}
@@ -888,11 +902,36 @@ function startHeartbeat() {
   });
 }
 
-// App-mode empty board: auto-load the configured user's latest game, or prompt for a username.
+// App-mode empty board: auto-load the configured Lichess user's latest game; for a chess.com-only
+// user (no autoloadable handle) skip straight to Paste / Upload; otherwise prompt for a username.
 async function maybeAutoload() {
   if (appUsername) await autoOpenLatest(appUsername);
+  else if (chesscomUsername) openPastePanel(`Paste or upload ${chesscomUsername}'s games to analyze them.`);
   else showFirstRun("");
   return true;
+}
+
+// Reveal the Games panel on the Paste-PGN tab (the entry point for chess.com / any-source games).
+function openPastePanel(metaMsg) {
+  document.body.classList.remove("history-hidden"); // make sure the panel is visible
+  setMode("paste");
+  $("paste-pgn").focus();
+  if (metaMsg) $("game-meta").textContent = metaMsg;
+}
+
+// Persist both handles server-side (Lichess + chess.com) in one write and reflect them locally.
+// Used by the first-run prompt, which offers both fields at once.
+async function saveIdentity(lichess, chesscom) {
+  appUsername = (lichess || "").trim();
+  chesscomUsername = (chesscom || "").trim();
+  if (appUsername) $("lichess-user").placeholder = appUsername;
+  try {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: appUsername, chesscom_username: chesscomUsername }),
+    });
+  } catch (_) {}
 }
 
 // Persist the configured username server-side (unified identity) and reflect it locally.
@@ -940,6 +979,7 @@ function showFirstRun(defaultUsername) {
   const overlay = $("firstrun");
   if (!overlay) return;
   $("firstrun-user").value = defaultUsername || "";
+  $("firstrun-chesscom-user").value = chesscomUsername || "";
   overlay.hidden = false;
   $("firstrun-user").focus();
 }
@@ -1021,6 +1061,9 @@ function beginProvisional(pgn, side, metaText) {
   currentMistake = -1;
   anchorNode = 0;
   mistakes = [];
+  currentPgn = pgn; // enable "Review other side" immediately; names fill in at phase-2
+  gameWhite = "";
+  gameBlack = "";
   currentPrompt = "";
   $("comment").textContent = "";
   $("verdict").innerHTML = "";
@@ -1051,6 +1094,30 @@ function beginProvisional(pgn, side, metaText) {
     renderMoveList();
     $("game-meta").textContent = "Analyzing…";
   }
+  updateFlipReviewButton(); // side is known now; names fill in at phase-2
+}
+
+// Show/label the "Review other side" button for the loaded game (hidden until a game is open).
+// It re-analyses the SAME game from the opponent's perspective — a separate history record
+// (keyed by reviewed_side, so it never collides with the side already analysed).
+function updateFlipReviewButton() {
+  const btn = $("flip-review");
+  if (!btn) return;
+  if (!currentPgn || !timeline.length) {
+    btn.hidden = true;
+    return;
+  }
+  const otherColor = player === "white" ? "black" : "white";
+  const name = otherColor === "white" ? gameWhite : gameBlack;
+  const label = name && name !== "?" ? name : otherColor === "white" ? "White" : "Black";
+  btn.textContent = `↺ Review ${label}'s side`;
+  btn.hidden = false;
+}
+
+// Re-open the current game reviewing the opponent (the wrong side may have been auto-picked).
+function reviewOtherSide() {
+  if (!currentPgn) return;
+  openGame(currentPgn, player === "white" ? "black" : "white");
 }
 
 function openGame(pgn, side) {
@@ -1244,6 +1311,9 @@ function renderHistory(games, mode, who) {
       sub = `${g.date || ""} · ${g.opening || "—"} · ${acc} · ${g.speed}`;
       blunders = (g.counts && g.counts.blunder) || 0;
       disabled = !g.has_pgn;
+      // Tint games recorded under the configured user ("you") so they stand out from games
+      // analysed for someone else (e.g. an opponent-side review, or another account's PGN).
+      if (myPlayerId && g.player_id && g.player_id === myPlayerId) cls += " mine";
     } else {
       const w = (g.white || "").toLowerCase();
       const b = (g.black || "").toLowerCase();
@@ -1392,6 +1462,7 @@ async function openSettings() {
   }
   const s = data.settings || {};
   $("set-username").value = s.username || "";
+  $("set-chesscom").value = s.chesscom_username || "";
   $("set-aliases").value = s.aliases || "";
   $("set-token").value = s.lichess_token || "";
   // Coaching memory: load the raw windows into the Advanced fields, then point the
@@ -1419,6 +1490,7 @@ async function saveSettings(e) {
   $("settings-status").textContent = "Saving…";
   const patch = {
     username: $("set-username").value.trim(),
+    chesscom_username: $("set-chesscom").value.trim(),
     aliases: $("set-aliases").value.trim(),
     lichess_token: $("set-token").value.trim(),
     stockfish_path: $("set-stockfish").value.trim(),
@@ -1446,6 +1518,7 @@ async function saveSettings(e) {
     return;
   }
   appUsername = (res.settings && res.settings.username) || "";
+  chesscomUsername = (res.settings && res.settings.chesscom_username) || "";
   if (appUsername) $("lichess-user").placeholder = appUsername;
   $("settings").hidden = true;
   // Apply the auto-summary preference without clobbering a summary that's already shown/pending:
@@ -1533,6 +1606,7 @@ function init() {
     () => currentMistake < mistakes.length - 1 && selectMistake(currentMistake + 1)
   );
   $("reset").addEventListener("click", returnToReview);
+  $("flip-review").addEventListener("click", reviewOtherSide);
   $("best-toggle").addEventListener("change", (e) => {
     bestArrowOn = e.target.checked;
     refreshBestMoves(); // starts the live search when on, clears arrows when off
@@ -1589,14 +1663,17 @@ function init() {
     reflectSetAsMe((u || "").toLowerCase());
     loadHistory(); // "My games" now resolves to this account
   });
-  // First-run prompt (no configured account): open that user's latest game, optionally save it.
+  // First-run prompt (no configured account): two fields, fill in either. Save both, then open the
+  // Lichess user's latest game if given, else route the chess.com user to Paste / Upload PGN.
   $("firstrun-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const u = $("firstrun-user").value.trim();
-    if (!u) return;
-    if ($("firstrun-remember").checked) await saveUsername(u);
+    const lichess = $("firstrun-user").value.trim();
+    const chesscom = $("firstrun-chesscom-user").value.trim();
+    if (!lichess && !chesscom) return;
+    await saveIdentity(lichess, chesscom);
     $("firstrun").hidden = true;
-    autoOpenLatest(u);
+    if (lichess) autoOpenLatest(lichess);
+    else openPastePanel(`Paste or upload ${chesscom}'s games to analyze them.`);
   });
   // Settings panel.
   $("settings-toggle").addEventListener("click", openSettings);
@@ -1607,15 +1684,6 @@ function init() {
   $("set-lifetime").addEventListener("input", syncProfileModeFromFields);
   $("set-skill-auto").addEventListener("change", updateSkillUI);
   $("set-elo").addEventListener("input", updateSkillUI);
-  // First-run escape for non-Lichess (e.g. Chess.com) users: jump straight to Paste PGN.
-  $("firstrun-paste").addEventListener("click", () => {
-    $("firstrun").hidden = true;
-    document.body.classList.remove("history-hidden"); // make sure the panel is visible
-    setMode("paste");
-    $("paste-pgn").focus();
-    $("game-meta").textContent = "Paste a PGN to analyze it.";
-  });
-
   window.addEventListener("keydown", (e) => {
     // Escape blurs the chat box (or any field) so board hotkeys work again.
     if (e.key === "Escape" && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {

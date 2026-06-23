@@ -117,10 +117,25 @@ ENGINE_HASH_MB: int = int(os.environ.get("CHESS_ENGINE_HASH_MB", "128"))
 # Centipawn magnitude treated as "mate-equivalent" when converting mate scores.
 MATE_SCORE_CP: int = 10000
 
-# Used by analyze_game(player="auto") to pick which side is "me" from PGN headers.
-# Default MUST be empty: a non-empty default would silently become every fresh install's "me"
-# (the downloadable app's launcher never sets CHESS_USERNAME), suppressing the first-run prompt.
-USERNAME: str = os.environ.get("CHESS_USERNAME", "")
+# Identity. USERNAME is the canonical "me" handle (the player_id join key, coaching profile, and
+# analyze_game(player="auto") side detection). Default MUST be empty: a non-empty default would
+# silently become every fresh install's "me" (the downloadable app's launcher never sets
+# CHESS_USERNAME), suppressing the first-run prompt.
+#
+# LICHESS_USERNAME is specifically the Lichess handle, which is what drives the "open my latest game"
+# autoload — chess.com has no public game-fetch API, so only a Lichess handle is autoloadable.
+# CHESSCOM_USERNAME is the chess.com handle; it folds into USERNAME's profile as a chesscom-pinned
+# alias. These are derived together by `_compose_identity` (called from env at import and re-applied
+# from settings.json), so a chess.com-only user (no Lichess handle) is still canonically identified
+# by their chess.com name.
+USERNAME: str = ""
+LICHESS_USERNAME: str = ""
+CHESSCOM_USERNAME: str = ""
+# The user-typed "other accounts" string is preserved verbatim in USERNAME_ALIASES_RAW (so the
+# Settings form round-trips it); USERNAME_ALIASES is the parsed (platform|None, handle) pairs *plus*
+# the derived chesscom alias.
+USERNAME_ALIASES_RAW: str = ""
+USERNAME_ALIASES: list[tuple[str | None, str]] = []
 
 
 def _parse_aliases(raw: str) -> list[tuple[str | None, str]]:
@@ -144,9 +159,32 @@ def _parse_aliases(raw: str) -> list[tuple[str | None, str]]:
     return pairs
 
 
-# Extra account handles that are also "me" (folded into CHESS_USERNAME's profile). Set in
-# .mcp.json's env, e.g. CHESS_ALIASES="chesscom:dpdemler, my_other_lichess".
-USERNAME_ALIASES: list[tuple[str | None, str]] = _parse_aliases(os.environ.get("CHESS_ALIASES", ""))
+def _compose_identity(lichess: str, chesscom: str, aliases_raw: str) -> None:
+    """Set the identity globals coherently from the three user-facing inputs.
+
+    Canonical USERNAME = the Lichess handle if given, else the chess.com handle (so a chess.com-only
+    user is still attributed and profiled by their chess.com name). The chess.com handle folds into
+    USERNAME's profile as a chesscom-pinned alias whenever it isn't already the canonical id. Called
+    from the env at import and re-applied live by `settings.apply` (settings.json > env > defaults).
+    """
+    global USERNAME, LICHESS_USERNAME, CHESSCOM_USERNAME, USERNAME_ALIASES, USERNAME_ALIASES_RAW
+    LICHESS_USERNAME = (lichess or "").strip()
+    CHESSCOM_USERNAME = (chesscom or "").strip()
+    USERNAME = LICHESS_USERNAME or CHESSCOM_USERNAME
+    USERNAME_ALIASES_RAW = (aliases_raw or "").strip()
+    aliases = _parse_aliases(USERNAME_ALIASES_RAW)
+    if CHESSCOM_USERNAME and CHESSCOM_USERNAME.lower() != USERNAME.lower():
+        aliases.append(("chesscom", CHESSCOM_USERNAME.lower()))
+    USERNAME_ALIASES = aliases
+
+
+# Identity from the env (.mcp.json setup path). Legacy CHESS_USERNAME is treated as the Lichess
+# handle (it has always driven autoload); CHESS_CHESSCOM_USERNAME and CHESS_ALIASES are optional.
+_compose_identity(
+    os.environ.get("CHESS_USERNAME", ""),
+    os.environ.get("CHESS_CHESSCOM_USERNAME", ""),
+    os.environ.get("CHESS_ALIASES", ""),
+)
 
 # Game history (personalised coaching). Each analysed game is appended as one line to
 # <DATA_DIR>/history/games.jsonl, deduped by (game_id, reviewed_side). Identity aliases

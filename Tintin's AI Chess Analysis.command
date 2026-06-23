@@ -67,6 +67,14 @@ if curl -fsS "${URL}/api/app-config" >/dev/null 2>&1; then
   exit 0
 fi
 
+# Open a loading splash in the browser RIGHT NOW so first-time users see immediate progress while
+# the (slow, one-time) install + engine download run — instead of a blank screen that looks frozen.
+# The splash polls the board URL and swaps itself for the real app the moment the server is up; so we
+# set CHESS_WEB_OPEN=0 below to avoid the server opening a second, duplicate tab. (Spaces in the path
+# → %20 for a valid file:// URL; the #host:port lets the splash know where the board will be.)
+SPLASH="file://${PWD// /%20}/frontend/loading.html#${HOST}:${PORT}"
+open "$SPLASH" 2>/dev/null || xdg-open "$SPLASH" 2>/dev/null || true
+
 # First-run install: no uv, or the project env hasn't been built yet.
 if ! command -v uv >/dev/null 2>&1 || [ ! -d ".venv" ]; then
   echo "First-time setup — installing Tintin's AI Chess Analysis (this happens only once)…"
@@ -77,5 +85,6 @@ fi
 echo "Starting Tintin's AI Chess Analysis… close the browser tab (or this window) to quit."
 # Run in the foreground (not exec) so we can close this window once the server exits — which the
 # server does automatically a few seconds after the browser tab is closed (app-liveness watchdog).
-CHESS_APP_MODE=1 uv run python scripts/run_web.py --serve || true
+# CHESS_WEB_OPEN=0: the splash tab above redirects to the board itself, so don't open another.
+CHESS_APP_MODE=1 CHESS_WEB_OPEN=0 uv run python scripts/run_web.py --serve || true
 close_window

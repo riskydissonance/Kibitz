@@ -68,7 +68,9 @@ def get_app_config() -> dict:
     most recent Lichess game on open) and the default username to use for that (CHESS_USERNAME)."""
     return {
         "app_mode": config.APP_MODE,
-        "default_username": config.USERNAME or "",
+        "default_username": config.USERNAME or "",  # canonical "me" (Lichess if set, else chess.com)
+        "lichess_username": config.LICHESS_USERNAME or "",  # autoloadable handle (drives first-run)
+        "chesscom_username": config.CHESSCOM_USERNAME or "",  # configured chess.com handle (if any)
         "coach_ai_auto": config.COACH_AI_AUTO,  # auto-press the AI-summary button on each game?
         "personalize_history": config.PERSONALIZE_HISTORY,  # inject coaching profile into chat?
     }
@@ -82,6 +84,9 @@ def get_session() -> dict:
         return {"empty": True}
     summary = session_mod.summarize_session(sess)
     summary["explore_fen"] = sess.explore_fen
+    # The raw PGN, so the board can re-analyse this same game from the other side without a refetch.
+    # Web-only (kept off summarize_session so the MCP tool output stays compact).
+    summary["pgn"] = sess.pgn
     return summary
 
 

@@ -800,6 +800,7 @@ def history_rows(player_id: Optional[str] = None, data_dir: Optional[str] = None
         rows.append(
             {
                 "game_id": r.get("game_id"),
+                "player_id": r.get("player_id"),  # lets the panel tint games that are "you"
                 "reviewed_side": r.get("reviewed_side"),
                 "white": r.get("white"),
                 "black": r.get("black"),

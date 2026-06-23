@@ -21,6 +21,7 @@ from server import config
 # config the same way the matching env vars are).
 KEYS = (
     "username",
+    "chesscom_username",
     "aliases",
     "lichess_token",
     "profile_recent",
@@ -55,10 +56,15 @@ def save(settings: dict, data_dir: Optional[str] = None) -> None:
 
 def apply(settings: dict) -> None:
     """Override live `config` values from a settings dict (only the keys that are present)."""
-    if "username" in settings:
-        config.USERNAME = (settings["username"] or "").strip()
-    if "aliases" in settings:
-        config.USERNAME_ALIASES = config._parse_aliases(settings["aliases"] or "")
+    # Identity is composed from three fields together (Lichess handle, chess.com handle, other
+    # accounts) so the canonical player_id + aliases stay coherent. Any field absent from the patch
+    # keeps its current live value.
+    if any(k in settings for k in ("username", "chesscom_username", "aliases")):
+        config._compose_identity(
+            settings.get("username", config.LICHESS_USERNAME),
+            settings.get("chesscom_username", config.CHESSCOM_USERNAME),
+            settings.get("aliases", config.USERNAME_ALIASES_RAW),
+        )
     if "lichess_token" in settings:
         config.LICHESS_TOKEN = (settings["lichess_token"] or "").strip()
     if "profile_recent" in settings:
@@ -87,15 +93,12 @@ def apply_saved(data_dir: Optional[str] = None) -> dict:
     return settings
 
 
-def _aliases_to_str(pairs: list[tuple[Optional[str], str]]) -> str:
-    return ", ".join((f"{plat}:{name}" if plat else name) for plat, name in pairs)
-
-
 def effective() -> dict:
     """The current effective values (as raw strings) for the Settings form."""
     return {
-        "username": config.USERNAME or "",
-        "aliases": _aliases_to_str(config.USERNAME_ALIASES),
+        "username": config.LICHESS_USERNAME or "",
+        "chesscom_username": config.CHESSCOM_USERNAME or "",
+        "aliases": config.USERNAME_ALIASES_RAW,
         "lichess_token": config.LICHESS_TOKEN or "",
         "profile_recent": str(config.PROFILE_RECENT_WINDOW),
         "profile_lifetime": "all" if config.PROFILE_LIFETIME is None else str(config.PROFILE_LIFETIME),

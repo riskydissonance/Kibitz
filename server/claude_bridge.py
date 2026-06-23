@@ -56,15 +56,16 @@ class ChatError(Exception):
 def _child_env() -> dict:
     """Environment for the spawned `claude` so it uses the user's subscription login.
 
-    Drops `CHESS_WEB_AUTOSTART` so the child doesn't rebind the board port, and strips
-    *empty* `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` values. An empty key is never
-    intentional but still makes the CLI attempt (and fail with a 401) API-key auth instead
-    of falling back to the subscription login — a common Windows footgun.
+    Sets `CHESS_WEB_AUTOSTART=0` so the child doesn't rebind the board port, and **always
+    strips** `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`. This feature is deliberately
+    subscription-based (see module docstring), and headless `claude -p` can't prompt the way
+    interactive Claude Code does — so a stray/empty/stale key in the environment silently
+    hijacks auth and 401s ("Invalid authentication credentials"). Removing it forces the
+    subscription login the chat is designed around.
     """
     env = {**os.environ, "CHESS_WEB_AUTOSTART": "0"}
-    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
-        if key in env and not env[key].strip():
-            env.pop(key)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
     return env
 
 

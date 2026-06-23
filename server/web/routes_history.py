@@ -49,9 +49,14 @@ def _side_for(headers: dict, self_handle: str | None, player: str) -> str:
 
 @router.get("/history")
 def get_history() -> dict:
-    """Newest-first list of the configured user's previously-analysed games (for the panel)."""
+    """Newest-first list of EVERY previously-analysed game (for the "My games" panel).
+
+    Intentionally unfiltered: we show all analysed games regardless of which account they were
+    recorded under, so games analysed for a handle that isn't the configured user (e.g. a pasted
+    Chess.com game, or a game reviewed from the opponent's side) are still reachable here.
+    """
     try:
-        rows = history.history_rows(player_id=history.my_player_id())
+        rows = history.history_rows()
     except Exception as exc:  # pragma: no cover - history must never break the board
         return {"games": [], "error": str(exc)}
     return {"player_id": history.my_player_id(), "games": rows}
