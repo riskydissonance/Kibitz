@@ -16,9 +16,6 @@ venv/
 env/
 ENV/
 
-# Test suite (kept local; users don't need it on GitHub)
-tests/
-
 # Test / coverage / type caches
 .pytest_cache/
 .mypy_cache/

@@ -1565,6 +1565,96 @@ function updatePasteHint() {
     n > 1 ? `${n} games detected — all will be analyzed into My games.` : "1 game ready to analyze.";
 }
 
+// Kick off analysis of a PGN typed/uploaded/dropped into the Paste panel. Shared by the Analyze
+// button, the file picker, and the drag-and-drop drop zone. Routes multi-game PGNs to openBatch.
+function startPasteAnalysis(pgn, side, username) {
+  $("firstrun").hidden = true; // in case the first-run prompt was still up
+  $("history-status").textContent = "";
+  if (countGames(pgn) > 1) openBatch(pgn, side, username);
+  else openGame(pgn, side);
+}
+
+// Read a dropped/picked .pgn file, mirror it into the Paste textarea (so the user sees what loaded
+// and can still pick a side), and — when `analyze` — start the sweep straight away. Dropping a file
+// anywhere on the Games panel uses analyze=true so people don't have to click Upload then Analyze.
+function loadPgnFile(file, analyze) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    setMode("paste"); // reveal the Paste panel so the loaded PGN is visible/editable
+    $("paste-pgn").value = reader.result || "";
+    updatePasteHint();
+    if (!analyze) return;
+    const pgn = ($("paste-pgn").value || "").trim();
+    if (!pgn) {
+      $("history-status").textContent = "That file had no PGN text.";
+      return;
+    }
+    startPasteAnalysis(pgn, $("paste-side").value || "auto", ($("paste-username").value || "").trim());
+  };
+  reader.onerror = () => {
+    $("history-status").textContent = "Could not read that file.";
+  };
+  reader.readAsText(file);
+}
+
+// True when a drag carries files (vs. selected text), so we only hijack file drags.
+function dragHasFiles(e) {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+}
+
+// First dropped file that looks like a PGN (by extension — many sources set no MIME type).
+function firstPgnFile(dataTransfer) {
+  const files = dataTransfer && dataTransfer.files ? Array.from(dataTransfer.files) : [];
+  return files.find((f) => /\.(pgn|txt)$/i.test(f.name || "")) || null;
+}
+
+// Drag-and-drop a .pgn onto the Games panel (any tab) to load + analyze it. dragenter/leave use a
+// depth counter so the highlight doesn't flicker as the cursor crosses child elements.
+function initPgnDrop() {
+  const col = $("history-col");
+  if (!col) return;
+  let depth = 0;
+  const clear = () => {
+    depth = 0;
+    col.classList.remove("drag-over");
+  };
+  col.addEventListener("dragenter", (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    col.classList.add("drag-over");
+  });
+  col.addEventListener("dragover", (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  col.addEventListener("dragleave", (e) => {
+    if (!dragHasFiles(e)) return;
+    if (--depth <= 0) clear();
+  });
+  col.addEventListener("drop", (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    clear();
+    const file = firstPgnFile(e.dataTransfer);
+    if (!file) {
+      setMode("paste");
+      $("history-status").textContent = "Drop a .pgn file to analyze it.";
+      return;
+    }
+    loadPgnFile(file, true);
+  });
+  // Stop the browser from navigating away if a file is dropped outside the panel (only intercept
+  // file drags, so dragging selected text into inputs/textarea still works normally).
+  ["dragover", "drop"].forEach((ev) =>
+    document.addEventListener(ev, (e) => {
+      if (dragHasFiles(e)) e.preventDefault();
+    })
+  );
+}
+
 // Below this width the Games panel is an off-canvas drawer (see styles.css) rather than a third
 // column, so it must start closed and auto-close when a game is opened to reveal the board.
 const HISTORY_DRAWER_MAX = 1400;
@@ -1626,15 +1716,10 @@ function init() {
   $("paste-upload").addEventListener("click", () => $("paste-file").click());
   $("paste-file").addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      $("paste-pgn").value = reader.result || "";
-      updatePasteHint();
-    };
-    reader.readAsText(file);
+    loadPgnFile(file, false); // picker just loads into the textarea; user presses Analyze
     e.target.value = ""; // allow re-selecting the same file later
   });
+  initPgnDrop(); // drag a .pgn onto the Games panel to load + analyze it
   $("paste-pgn").addEventListener("input", updatePasteHint);
   $("paste-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1643,12 +1728,7 @@ function init() {
       $("history-status").textContent = "Paste or upload a PGN first.";
       return;
     }
-    $("firstrun").hidden = true; // in case the first-run prompt was still up
-    $("history-status").textContent = "";
-    const side = $("paste-side").value || "auto";
-    const username = ($("paste-username").value || "").trim();
-    if (countGames(pgn) > 1) openBatch(pgn, side, username);
-    else openGame(pgn, side);
+    startPasteAnalysis(pgn, $("paste-side").value || "auto", ($("paste-username").value || "").trim());
   });
   $("lichess-form").addEventListener("submit", (e) => {
     e.preventDefault();

@@ -1,18 +1,63 @@
 """FastAPI app factory: JSON board API + the static no-build frontend."""
 from __future__ import annotations
 
+import ipaddress
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
+from server import config
 from server.core import app_liveness
 from server.core import lifecycle
 from server.web.routes_board import router as board_router
 from server.web.routes_chat import router as chat_router
 from server.web.routes_history import router as history_router
 from server.web.routes_settings import router as settings_router
+
+
+# --- Local-only request guard (CSRF / DNS-rebinding defence) ------------------------------------
+# The board binds to loopback, but loopback is NOT a security boundary for a *browser*: any website
+# the user visits can make their browser send requests to 127.0.0.1, and a DNS-rebinding attack can
+# even turn that into a same-origin read. Our endpoints spawn `claude -p` (burns the user's Claude
+# quota) and expose game history + the Lichess token, so we reject requests that don't originate
+# from the board itself. Two checks, both standard for localhost apps:
+#   * Host header must be a loopback name — defeats DNS rebinding (the browser sends the attacker's
+#     hostname in Host even after the IP rebinds to 127.0.0.1).
+#   * Origin header (when present) must be loopback — blocks ordinary cross-site fetch/POST.
+# "testserver" is allowed so Starlette's TestClient works; a real browser can't be coerced into
+# sending that Host while connecting to the user's machine, so it doesn't widen the attack surface.
+_LOCAL_HOSTNAMES = {"localhost", "testserver"}
+
+
+def _authority_host(value: str) -> str:
+    """Extract the bare host from a Host or Origin header value (drop scheme, port, [] brackets)."""
+    v = value.strip().lower()
+    if "://" in v:  # Origin is scheme://host[:port]; Host is host[:port]
+        v = v.split("://", 1)[1]
+    if v.startswith("["):  # bracketed IPv6, e.g. [::1]:8765
+        return v[1:].split("]", 1)[0]
+    return v.rsplit(":", 1)[0] if ":" in v else v
+
+
+def _is_local_host(host: str) -> bool:
+    if host in _LOCAL_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _guard_is_active() -> bool:
+    """Guard only when bound to loopback. Binding to 0.0.0.0/a routable IP is an explicit opt-in to
+    network access, where a fixed Host allowlist would be wrong — so we don't second-guess it."""
+    host = (config.WEB_HOST or "").strip()
+    if host in ("", "0.0.0.0", "::"):
+        return False
+    return _is_local_host(_authority_host(host))
 
 
 def _resolve_frontend_dir() -> Path | None:
@@ -42,8 +87,24 @@ def create_app() -> FastAPI:
     # No-op for the MCP-driven board and tests (config.APP_MODE is off there).
     app_liveness.start()
 
+    guard_active = _guard_is_active()
+
     @app.middleware("http")
-    async def _mark_activity(request: Request, call_next):
+    async def _guard_and_mark_activity(request: Request, call_next):
+        # Reject cross-site / rebound requests before they can spend Claude quota or read game data.
+        if guard_active:
+            host = request.headers.get("host", "")
+            if host and not _is_local_host(_authority_host(host)):
+                return PlainTextResponse("Forbidden: non-local Host header.", status_code=403)
+            origin = request.headers.get("origin")
+            if origin is not None:
+                if origin.lower() == "null":
+                    # file:// (the loading splash) and sandboxed iframes both send Origin: null.
+                    # Allow it only for side-effect-free reads; never for state-changing methods.
+                    if request.method not in ("GET", "HEAD", "OPTIONS"):
+                        return PlainTextResponse("Forbidden: opaque origin.", status_code=403)
+                elif not _is_local_host(_authority_host(origin)):
+                    return PlainTextResponse("Forbidden: cross-origin request.", status_code=403)
         # Any board interaction keeps the session alive (resets the idle watchdog).
         lifecycle.touch()
         return await call_next(request)

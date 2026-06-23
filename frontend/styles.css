@@ -595,6 +595,13 @@ main {
 
 .history-col { flex: 0 0 auto; width: 280px; }
 body.history-hidden .history-col { display: none; }
+/* Highlight the whole Games panel while a .pgn file is dragged over it (drop to analyze). */
+.history-col.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: 8px;
+  background: rgba(98, 153, 36, 0.08); /* --accent at low alpha */
+}
 
 .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .hist-head h2 { font-size: 15px; margin: 0; }

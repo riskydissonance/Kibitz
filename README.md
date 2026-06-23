@@ -1,5 +1,8 @@
 # Chess Review MCP
 
+[![CI](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Analyze a chess game (PGN) with **Stockfish**, find where you went wrong, and, unlike a bare
 engine, get the mistakes **explained in words**, grounded in real engine lines. Works with games
 from **anywhere** — Lichess, Chess.com, or any PGN you can paste — and Lichess players get a few
@@ -374,8 +377,9 @@ uv sync --extra dev          # pulls in pytest (one time)
 uv run python -m pytest
 ```
 
-Pure-math tests are instant; engine tests use a low depth (~1s total). The chat test is mocked, so
-the suite never spends Agent-SDK credit.
+The suite is all fast unit/mock tests with no Stockfish, no network, and no `claude` CLI (the
+engine, the Lichess API, and the chat are mocked), so it runs in well under a second and never
+spends Agent-SDK credit. It also runs on every push / PR via GitHub Actions (`.github/workflows/ci.yml`).
 
 ---
 
@@ -405,3 +409,48 @@ tests/               # pytest suite
   credit; the terminal path is the zero-extra-cost fallback.
 - Engine analysis is fixed-depth and cached for reproducibility, so evals can differ slightly from
   Lichess near classification boundaries. That's expected.
+
+---
+
+## Your data: what stays local, what leaves your machine
+
+This tool is **local-first**, but it is not fully offline, so here's the honest breakdown:
+
+- **Stays on your machine.** The Stockfish engine review (the mistake list, eval bar, win graph,
+  arrows, and the templated move comments) is **100% local**. Your analyzed-game history and
+  coaching profile are stored only under your app-data folder (see [Configuration](#configuration));
+  nothing is uploaded.
+- **The web board is loopback-only.** The board listens on `127.0.0.1` and is guarded against
+  cross-site / DNS-rebinding requests, so other websites you visit can't reach it, read your game
+  data, or spend your Claude quota.
+- **The AI coach (Snowie) sends data to Anthropic.** The in-browser chat and AI-coach summaries run
+  through the headless `claude` CLI **under your own Claude subscription**. To answer, they send the
+  current position (FEN) and pre-computed engine facts to Claude. They also include a summary of
+  your recurring-mistake profile, but **only if** you enable *"Personalize AI coach with my history"*
+  in ⚙ Settings (off by default for new users; opt-in). No API key, no per-token billing, and the
+  engine review works without `claude` at all if you'd rather keep everything local.
+- **Lichess import is optional.** Fetching your games calls the public Lichess API with the username
+  (and optional token) you provide. Skip it and paste PGNs instead, and nothing is sent to Lichess.
+
+---
+
+## License & credits
+
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE).
+
+It stands on the shoulders of others, with thanks:
+
+- **[Stockfish](https://stockfishchess.org/)**: the chess engine doing the actual analysis.
+  Stockfish is licensed under the **GNU GPL v3**; this project invokes it as a separate binary and
+  does not include or modify its source. The app/launcher downloads the official Stockfish build
+  when no system install is found.
+- **[python-chess](https://python-chess.readthedocs.io/)** (GPL v3): PGN parsing, move
+  generation, and board logic.
+- **[chessground](https://github.com/lichess-org/chessground)** & **[chess.js](https://github.com/jhlywa/chess.js)**: the interactive board UI (loaded from a CDN).
+- **Opening names** come from the **[Lichess `chess-openings`](https://github.com/lichess-org/chess-openings)** ECO dataset (CC0), vendored in `server/data/eco/`.
+- **[FastAPI](https://fastapi.tiangolo.com/)**, **[uvicorn](https://www.uvicorn.org/)**,
+  **[Pydantic](https://docs.pydantic.dev/)**, and the **[MCP](https://modelcontextprotocol.io/)**
+  Python SDK power the server.
+
+Trademarks (Lichess, Chess.com, Claude, Anthropic) belong to their respective owners; this is an
+independent project not affiliated with any of them.
