@@ -21,7 +21,10 @@ REPO_ROOT="$(pwd)"
 
 APP_NAME="Tintin's AI Chess Analysis"
 BUNDLE_ID="com.thedarktintin.chessanalysis"
-VERSION="1.0"
+# Single source of truth: pyproject.toml's version (same value the runtime reads via config.APP_VERSION
+# and the update-check compares against the latest GitHub release tag). Falls back to 0.0.0.
+VERSION="$(grep -m1 -E '^[[:space:]]*version[[:space:]]*=' pyproject.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/')"
+VERSION="${VERSION:-0.0.0}"
 
 # Build the bundle at the repo root so it's easy to find / double-click (gitignored).
 DIST="$REPO_ROOT"
@@ -274,6 +277,7 @@ echo "Syncing Python environment into $ENV_DIR …"
 # 4) Serve the board in app mode. Run the venv's python directly (no terminal, shallow process
 #    tree) so closing the browser tab — or quitting the app — stops the server cleanly.
 export CHESS_APP_MODE=1
+export CHESS_APP_BUNDLE=1          # read-only bundle → update-check offers a download, not self-update
 export CHESS_DATA_DIR="$DATA_DIR"
 export CHESS_WEB_OPEN=0            # the splash tab opened above redirects itself — don't open another
 export PYTHONDONTWRITEBYTECODE=1   # don't try to write .pyc into the read-only bundle

@@ -57,24 +57,21 @@ info "Setting up the Python environment with uv (first run downloads Python + de
 uv sync
 ok "Environment ready"
 
-# 4) Record your chess username in .mcp.json (optional). -------------------------------
+# 4) Record your chess username (optional). --------------------------------------------
+# Saved to the user-level settings.json (shared by the app + MCP), NOT a tracked file — so the
+# working tree stays clean and the launcher's one-click update can fast-forward without conflicts.
 echo
 info "Your Lichess/Chess.com username lets the tool tell which side is 'you' in a game."
 read -r -p "Username (press Enter to skip): " CHESS_USER || CHESS_USER=""
 if [[ -n "${CHESS_USER}" ]]; then
   uv run python - "$CHESS_USER" <<'PY'
-import json, sys
-p = ".mcp.json"
-with open(p) as f:
-    cfg = json.load(f)
-cfg["mcpServers"]["chess"]["env"]["CHESS_USERNAME"] = sys.argv[1]
-with open(p, "w") as f:
-    json.dump(cfg, f, indent=2)
-    f.write("\n")
+import sys
+from server.core import settings
+settings.update({"username": sys.argv[1]})
 PY
-  ok "Saved username to .mcp.json"
+  ok "Saved username"
 else
-  warn "Skipped — set CHESS_USERNAME in .mcp.json later if you want auto side-detection."
+  warn "Skipped — set it later in the app's ⚙ Settings panel if you want auto side-detection."
 fi
 
 # 5) Self-check. -----------------------------------------------------------------------

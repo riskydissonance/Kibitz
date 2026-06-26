@@ -16,6 +16,11 @@ HOST="${CHESS_WEB_HOST:-127.0.0.1}"
 PORT="${CHESS_WEB_PORT:-8765}"
 URL="http://${HOST}:${PORT}"
 
+# Set when we re-exec ourselves after applying a git update (see the apply block below). On a relaunch
+# we skip the splash (already open) and the update step (already done), and just start the board.
+RELAUNCHED=""
+[ "${1:-}" = "--updated" ] && RELAUNCHED=1
+
 # Close THIS Terminal window (macOS Terminal only; best-effort, never fails the script). We spawn a
 # DETACHED helper (its own session, no controlling tty) that waits for this script's shell to exit,
 # then closes the window matched by tty. Detaching matters: if we closed the window while this shell
@@ -73,7 +78,35 @@ fi
 # set CHESS_WEB_OPEN=0 below to avoid the server opening a second, duplicate tab. (Spaces in the path
 # → %20 for a valid file:// URL; the #host:port lets the splash know where the board will be.)
 SPLASH="file://${PWD// /%20}/frontend/loading.html#${HOST}:${PORT}"
-open "$SPLASH" 2>/dev/null || xdg-open "$SPLASH" 2>/dev/null || true
+[ -n "$RELAUNCHED" ] || open "$SPLASH" 2>/dev/null || xdg-open "$SPLASH" 2>/dev/null || true
+
+# Apply a staged update before starting. The in-app "Update now" button drops a `.update-requested`
+# sentinel here; we apply it on the NEXT launch, then remove it. Best-effort — any failure just
+# starts the existing code. git checkout → git pull; source-zip download → fetch+extract the latest
+# release. (We only get here when no server is already running, so nothing has the venv files open.)
+# Skipped on a relaunch (the update is already applied).
+if [ -z "$RELAUNCHED" ] && [ -f ".update-requested" ]; then
+  echo "Applying a staged update…"
+  RELAUNCH=""
+  if [ -d ".git" ] && command -v git >/dev/null 2>&1; then
+    git stash --include-untracked -q 2>/dev/null || true   # keep a fast-forward possible (e.g. edited .mcp.json)
+    git pull --ff-only -q 2>/dev/null || echo "  (couldn't fast-forward; keeping current version)"
+    git stash pop -q 2>/dev/null || true
+    uv sync >/dev/null 2>&1 || true
+    RELAUNCH=1   # git pull may have rewritten THIS launcher — re-exec the fresh copy below
+  elif command -v uv >/dev/null 2>&1; then
+    # No git (or not a git checkout) → update by downloading the latest release instead. The zip
+    # updater never touches the launcher scripts, so no re-exec is needed here.
+    [ -d ".git" ] && echo "  Git isn't installed, so updating by download instead — install Git from https://git-scm.com/downloads for faster updates."
+    if uv run python scripts/apply_update.py; then uv sync >/dev/null 2>&1 || true; else echo "  (update skipped — download the latest from the Releases page)"; fi
+  else
+    echo "  Couldn't update automatically (neither Git nor uv is available). Download the latest version from the Releases page."
+  fi
+  rm -f ".update-requested" 2>/dev/null || true
+  # Replace this (possibly now-stale) process with a fresh run of the updated script. The splash is
+  # already open and the sentinel is gone, so the relaunch starts cleanly and won't re-update.
+  [ -n "$RELAUNCH" ] && exec "$0" --updated
+fi
 
 # First-run install: no uv, or the project env hasn't been built yet.
 if ! command -v uv >/dev/null 2>&1 || [ ! -d ".venv" ]; then

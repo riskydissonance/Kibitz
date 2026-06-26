@@ -73,6 +73,7 @@ def get_app_config() -> dict:
         "chesscom_username": config.CHESSCOM_USERNAME or "",  # configured chess.com handle (if any)
         "coach_ai_auto": config.COACH_AI_AUTO,  # auto-press the AI-summary button on each game?
         "personalize_history": config.PERSONALIZE_HISTORY,  # inject coaching profile into chat?
+        "current_version": config.APP_VERSION,  # for the update notice (cheap, local)
     }
 
 

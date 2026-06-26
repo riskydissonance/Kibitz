@@ -44,6 +44,11 @@
          claude CLI (AI chat / coach summary). Dismissible. -->
     <div id="setup-banner" class="setup-banner" hidden></div>
 
+    <!-- Update-available notice (filled by checkUpdates() from /api/update-check, app mode only):
+         info-blue for a minor/patch release, red for a major one. Offers a one-click "Update now"
+         on git/zip installs, or a download link on the read-only .app. Dismissible per version. -->
+    <div id="update-banner" class="setup-banner update" hidden></div>
+
     <main>
       <section class="board-col">
         <div id="scoreboard" class="scoreboard" hidden></div>
@@ -79,6 +84,15 @@
 
         <div id="status" class="status"></div>
       </section>
+
+      <!-- iPad-split-view-style drag handle: drag left/right to resize the board (and reflow the
+           analysis column); double-click to reset to the responsive default. position:fixed in CSS,
+           so its DOM position here doesn't affect layout. Behaviour: main.js initBoardResizer(). -->
+      <div id="col-resizer" class="col-resizer" role="separator" aria-orientation="vertical"
+        aria-label="Resize board — drag, or double-click to reset" tabindex="0"
+        title="Drag to resize the board · double-click to reset">
+        <div class="grip"><span></span><span></span><span></span></div>
+      </div>
 
       <aside class="side-col">
         <div id="coach" class="coach" hidden></div>

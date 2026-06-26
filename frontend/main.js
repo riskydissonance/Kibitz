@@ -816,6 +816,7 @@ async function loadAll() {
   if (appUsername) $("lichess-user").placeholder = appUsername;
   if (appMode) startHeartbeat(); // so closing this tab quits the standalone app
   checkSetup(); // surface a banner if Stockfish / the claude CLI is missing (fire-and-forget)
+  checkUpdates(); // surface an "update available" banner in app mode (fire-and-forget)
 
   const session = await fetch("/api/session").then((r) => r.json());
   if (session.empty) {
@@ -881,6 +882,108 @@ function showSetupBanner(banner, isErr, msgHtml, onDismiss) {
     if (onDismiss) onDismiss();
   });
   banner.hidden = false;
+}
+
+// --- update-available banner (app mode only) -----------------------------
+// Hits /api/update-check (throttled GitHub release lookup). Non-blocking, dismissible notice when a
+// newer release is out: info-blue for minor/patch, red for a major bump. Self-updatable installs
+// (git/zip) get a one-click "Update now" (staged, applied by the launcher on the next reopen); the
+// read-only .app gets a download link. Dismissal is remembered per version, so a newer release
+// re-notifies. Fire-and-forget; failures are silent.
+async function checkUpdates() {
+  if (!appMode) return; // only nag end-user app launches, never MCP/dev sessions
+  const banner = $("update-banner");
+  if (!banner) return;
+  let info;
+  try {
+    info = await fetch("/api/update-check").then((r) => r.json());
+  } catch (_) {
+    return;
+  }
+  if (!info || !info.update_available || !info.latest) return;
+  if (localStorage.getItem("hideUpdateBanner") === info.latest) return; // dismissed this version
+
+  const major = info.severity === "major";
+  banner.classList.remove("guide");
+  banner.classList.toggle("err", major); // red for major, else the info-blue .update
+  banner.classList.toggle("update", !major);
+  const v = escapeHtml(info.latest);
+  const lead = major ? `<b>Major update v${v} available.</b>` : `<b>Update available — v${v}.</b>`;
+  // git/zip self-update in place; the read-only .app needs a guided manual download.
+  const how = info.can_self_update
+    ? "Click Update now, then reopen the app to finish. Your games &amp; settings are kept."
+    : "A new version is ready.";
+  const action = info.can_self_update
+    ? `<button class="sb-btn" type="button" id="update-now">Update now</button>`
+    : `<button class="sb-btn" type="button" id="update-guide">How to update</button>`;
+
+  banner.innerHTML =
+    `<span class="sb-msg">${lead} ${how}</span>` +
+    action +
+    dismissX();
+  wireDismiss(banner, info);
+  const now = banner.querySelector("#update-now");
+  if (now) now.addEventListener("click", () => applyUpdate(now));
+  const guide = banner.querySelector("#update-guide");
+  if (guide) guide.addEventListener("click", () => showAppUpdateGuide(banner, info));
+  banner.hidden = false;
+}
+
+function dismissX() {
+  return `<button class="sb-x" type="button" aria-label="Dismiss" title="Dismiss">×</button>`;
+}
+function wireDismiss(banner, info) {
+  banner.querySelector(".sb-x").addEventListener("click", () => {
+    banner.hidden = true;
+    localStorage.setItem("hideUpdateBanner", info.latest); // remember per version
+  });
+}
+
+// The .app is read-only at runtime, so it can't self-update — expand the banner into step-by-step
+// install instructions (incl. the one-time unsigned-app "Open" step) and reassure that data is kept.
+function showAppUpdateGuide(banner, info) {
+  const url = escapeHtml(info.release_url || "#");
+  banner.classList.add("guide"); // full-width stacked layout
+  banner.innerHTML =
+    `<span class="sb-msg"><b>Update to v${escapeHtml(info.latest)}</b>` +
+    `<ol class="sb-steps">` +
+    `<li><a href="${url}" target="_blank" rel="noopener">Download the latest version</a> from the Releases page (the <code>…-macos.zip</code>).</li>` +
+    `<li>Double-click the downloaded <code>.zip</code> to unzip it.</li>` +
+    `<li>Drag <b>Tintin's AI Chess Analysis.app</b> into your <b>Applications</b> folder, replacing the old one. (Any location works — it doesn't have to be Applications.)</li>` +
+    `<li>First open: right-click the app → <b>Open</b> → <b>Open</b> (macOS asks once because the app isn't Apple-signed).</li>` +
+    `<li>That's it — your games, analysis, and settings carry over automatically.</li>` +
+    `</ol></span>` +
+    dismissX();
+  wireDismiss(banner, info);
+}
+
+// Stage a one-click update: POST /api/apply-update writes a sentinel the launcher applies on the
+// next start. We can't reliably relaunch from a browser tab, so we just tell the user to reopen.
+async function applyUpdate(btn) {
+  btn.disabled = true;
+  btn.textContent = "Staging…";
+  const msg = $("update-banner").querySelector(".sb-msg");
+  let res = {};
+  try {
+    res = await fetch("/api/apply-update", { method: "POST" }).then((r) => r.json());
+  } catch (_) {}
+  if (res && res.ok) {
+    if (msg) msg.innerHTML = "<b>Update staged.</b> Quit and reopen the app to finish updating.";
+    btn.textContent = "Quit now";
+    btn.disabled = false;
+    btn.onclick = () => {
+      try {
+        navigator.sendBeacon("/api/closing"); // app-liveness then shuts the server down
+      } catch (_) {}
+      window.close(); // works if the tab was script-opened; otherwise the message guides the user
+    };
+  } else {
+    if (msg)
+      msg.innerHTML =
+        "<b>Couldn't stage the update.</b> " + escapeHtml((res && res.error) || "Try again later.");
+    btn.textContent = "Update now";
+    btn.disabled = false;
+  }
 }
 
 // --- app mode: auto-open the latest Lichess game -------------------------
@@ -1718,6 +1821,135 @@ function toggleHistory() {
   document.body.classList.toggle("history-hidden");
 }
 
+// Keep the drawer state sane when the window crosses the 1400px breakpoint. Without this, the
+// `history-hidden` class is whatever it was last set to (e.g. never set, if the page loaded wide),
+// so shrinking below 1400 can leave the panel stuck open as a fixed drawer overlaying the board —
+// and the open drawer covers the ☰ Games button, so toggling it looks like nothing happens.
+// Entering drawer mode → start closed (☰ Games opens it); back to wide → show the column.
+let wasDrawer = historyIsDrawer();
+window.addEventListener("resize", () => {
+  const now = historyIsDrawer();
+  if (now === wasDrawer) return;
+  wasDrawer = now;
+  document.body.classList.toggle("history-hidden", now);
+});
+
+// --- board resizing (the iPad-style drag handle, #col-resizer) ------------------------------
+// Everything board-sized derives from the CSS var --board-size, which falls back to the
+// responsive --board-default unless we set an explicit --board-user (a px override). We keep the
+// user's chosen px in localStorage and re-clamp it on every apply, so it never overflows the row.
+const BOARD_SIZE_KEY = "chessBoardSize";
+let boardSizeUser = null; // px override, or null = use the responsive default
+
+// Looser than the default's 660px / 48vw caps (the user asked for less restriction) but still
+// leaves the analysis column (and the Games column, when it's not a drawer) enough room.
+function boardSizeBounds() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const PAD = 40; // main's left+right padding
+  const GAP = 24; // main's column gap
+  const SIDE_MIN = 280; // keep the analysis column usable
+  const EVALBAR = 28; // eval bar + its gap (col-width = board-size + 28)
+  const historyCol = vw > HISTORY_DRAWER_MAX ? 280 + GAP : 0; // a column above 1400, else a drawer
+  const maxByWidth = vw - PAD - GAP - SIDE_MIN - historyCol - EVALBAR;
+  const maxByHeight = Math.round(vh * 0.92);
+  const min = 240;
+  const max = Math.max(min, Math.min(maxByWidth, maxByHeight));
+  return { min, max };
+}
+
+let boardRedrawPending = false;
+function applyBoardSize() {
+  const root = document.documentElement;
+  if (boardSizeUser == null) {
+    root.style.removeProperty("--board-user");
+  } else {
+    const { min, max } = boardSizeBounds();
+    boardSizeUser = Math.round(Math.max(min, Math.min(max, boardSizeUser)));
+    root.style.setProperty("--board-user", boardSizeUser + "px");
+  }
+  // Chessground caches its bounds, so it needs a redraw to re-place pieces at the new square size.
+  if (ground && !boardRedrawPending) {
+    boardRedrawPending = true;
+    requestAnimationFrame(() => {
+      boardRedrawPending = false;
+      if (ground) ground.redrawAll();
+    });
+  }
+}
+
+function restoreBoardSize() {
+  try {
+    const v = parseInt(localStorage.getItem(BOARD_SIZE_KEY) || "", 10);
+    if (Number.isFinite(v) && v > 0) boardSizeUser = v;
+  } catch (_) {}
+  applyBoardSize();
+}
+
+function resetBoardSize() {
+  boardSizeUser = null;
+  try {
+    localStorage.removeItem(BOARD_SIZE_KEY);
+  } catch (_) {}
+  applyBoardSize();
+}
+
+function persistBoardSize() {
+  if (boardSizeUser == null) return;
+  try {
+    localStorage.setItem(BOARD_SIZE_KEY, String(boardSizeUser));
+  } catch (_) {}
+}
+
+function initBoardResizer() {
+  const rez = $("col-resizer");
+  if (!rez) return;
+  let startX = 0;
+  let startSize = 0;
+  let dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    // Board is on the left, so dragging right (positive delta) grows it.
+    boardSizeUser = startSize + (e.clientX - startX);
+    applyBoardSize();
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    rez.classList.remove("dragging");
+    document.body.style.userSelect = "";
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    persistBoardSize();
+  };
+  rez.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    // Start from whatever the board is actually rendered at (works whether or not an override is set).
+    startSize = Math.round($("board").getBoundingClientRect().width);
+    rez.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+  // Double-click resets to the responsive default.
+  rez.addEventListener("dblclick", resetBoardSize);
+  // Keyboard nudge for accessibility (handle is focusable).
+  rez.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const base = boardSizeUser == null ? Math.round($("board").getBoundingClientRect().width) : boardSizeUser;
+    boardSizeUser = base + (e.key === "ArrowRight" ? 24 : -24);
+    applyBoardSize();
+    persistBoardSize();
+  });
+  // Re-clamp a fixed board size when the window changes (so it can't overflow a now-smaller window).
+  window.addEventListener("resize", () => {
+    if (boardSizeUser != null) applyBoardSize();
+  });
+}
+
 function init() {
   // On small screens the Games panel is a drawer that overlays the board, so start it closed.
   closeHistoryDrawer();
@@ -1736,6 +1968,10 @@ function init() {
     opacity: 0.9,
     lineWidth: 10,
   };
+
+  // Board-resize handle: apply any saved board size now that Chessground exists, then wire drag.
+  restoreBoardSize();
+  initBoardResizer();
 
   $("back").addEventListener("click", stepBack);
   $("fwd").addEventListener("click", stepForward);

@@ -14,6 +14,11 @@ if "%CHESS_WEB_HOST%"=="" set "CHESS_WEB_HOST=127.0.0.1"
 if "%CHESS_WEB_PORT%"=="" set "CHESS_WEB_PORT=8765"
 set "URL=http://%CHESS_WEB_HOST%:%CHESS_WEB_PORT%"
 
+REM Set when we re-launch ourselves after applying a git update (see the apply block). On a relaunch
+REM we skip the splash (already open) and the update step (already done), and just start the board.
+set "RELAUNCHED="
+if /I "%~1"=="--updated" set "RELAUNCHED=1"
+
 REM Make a uv installed in the usual spot visible without a fresh shell.
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 
@@ -30,7 +35,17 @@ REM (slow, one-time) install + engine download run - instead of a blank screen t
 REM It polls the board URL and swaps itself for the real app once the server is up; CHESS_WEB_OPEN=0
 REM (below) stops the server opening a second tab. (%CD:\=/% turns the path into a file:// URL.)
 set "SPLASH=file:///%CD:\=/%/frontend/loading.html#%CHESS_WEB_HOST%:%CHESS_WEB_PORT%"
-start "" "%SPLASH%"
+if not defined RELAUNCHED start "" "%SPLASH%"
+
+REM Apply a staged update (dropped by the in-app "Update now" button) before starting. Best-effort.
+REM Skipped on a relaunch (already applied). cmd reads this .bat from disk as it runs, so after a git
+REM pull (which can rewrite this file) we re-launch a FRESH copy and exit, rather than keep executing
+REM a file that changed underneath us.
+if not defined RELAUNCHED if exist ".update-requested" call :apply_update
+if defined RELAUNCH (
+  start "" "%~f0" --updated
+  exit /b 0
+)
 
 REM First-run install: no uv, or the project env hasn't been built yet.
 where uv >nul 2>&1
@@ -48,3 +63,32 @@ echo Starting Tintin's AI Chess Analysis... keep this window open; close it to q
 set "CHESS_APP_MODE=1"
 set "CHESS_WEB_OPEN=0"
 uv run python scripts\run_web.py --serve
+goto :eof
+
+REM --- staged-update apply (called via "call :apply_update"; git pull or source-zip extract) ------
+:apply_update
+echo Applying a staged update...
+if not exist ".git" goto apply_zip
+where git >nul 2>&1 && goto apply_git
+echo   Git isn't installed, so updating by download instead - install Git from
+echo   https://git-scm.com/downloads for faster updates.
+goto apply_zip
+:apply_git
+git stash --include-untracked -q 2>nul
+git pull --ff-only -q 2>nul
+git stash pop -q 2>nul
+uv sync >nul 2>&1
+set "RELAUNCH=1"
+goto apply_done
+:apply_zip
+REM The download updater never touches the launcher scripts, so no re-launch is needed here.
+where uv >nul 2>&1 || goto apply_nouv
+uv run python scripts\apply_update.py
+if not errorlevel 1 uv sync >nul 2>&1
+goto apply_done
+:apply_nouv
+echo   Couldn't update automatically (neither Git nor uv is available).
+echo   Download the latest version from the Releases page instead.
+:apply_done
+del ".update-requested" >nul 2>&1
+goto :eof

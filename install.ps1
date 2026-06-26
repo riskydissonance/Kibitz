@@ -53,23 +53,21 @@ uv sync
 Ok "Environment ready"
 
 # 4) Record your chess username -------------------------------------------------------
+# Saved to the user-level settings.json (shared by app + MCP), NOT a tracked file — so the working
+# tree stays clean and the launcher's one-click update can fast-forward without conflicts.
 Write-Host ""
 Info "Your Lichess/Chess.com username lets the tool tell which side is 'you' in a game."
 $ChessUser = Read-Host "Username (press Enter to skip)"
 if ($ChessUser) {
     $py = @"
-import json, sys
-p = '.mcp.json'
-with open(p) as f:
-    cfg = json.load(f)
-cfg['mcpServers']['chess']['env']['CHESS_USERNAME'] = sys.argv[1]
-with open(p, 'w') as f:
-    json.dump(cfg, f, indent=2); f.write('\n')
+import sys
+from server.core import settings
+settings.update({'username': sys.argv[1]})
 "@
     uv run python -c $py $ChessUser
-    Ok "Saved username to .mcp.json"
+    Ok "Saved username"
 } else {
-    Warn "Skipped - set CHESS_USERNAME in .mcp.json later if you want auto side-detection."
+    Warn "Skipped - set it later in the app's Settings panel if you want auto side-detection."
 }
 
 # 5) Self-check -----------------------------------------------------------------------

@@ -12,6 +12,35 @@ import sys
 # Repo root (this file is <repo>/server/config.py), used for repo-relative defaults.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Public alias for the project root — the install dir the update-checker reasons about (presence of
+# a `.git` here decides the update channel; see server.core.updates).
+PROJECT_ROOT = _REPO_ROOT
+
+
+def _read_app_version() -> str:
+    """The single canonical app version: pyproject.toml's [project] version.
+
+    pyproject.toml ships in EVERY distribution channel (git checkout, the source zip, and the
+    rsynced `.app` bundle), so this one read works everywhere. Python is pinned >=3.11, so tomllib
+    is always present; a regex fallback covers a malformed/partial read. Never raises — an unknown
+    version degrades to "0.0.0" (the update-check then simply reports no update)."""
+    path = os.path.join(_REPO_ROOT, "pyproject.toml")
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return "0.0.0"
+    try:
+        import tomllib
+        ver = tomllib.loads(raw.decode("utf-8")).get("project", {}).get("version", "")
+        if ver:
+            return str(ver).strip()
+    except Exception:  # noqa: BLE001 - fall through to the regex
+        pass
+    import re
+    m = re.search(rb'(?m)^\s*version\s*=\s*["\']([^"\']+)["\']', raw)
+    return m.group(1).decode("utf-8").strip() if m else "0.0.0"
+
 
 def _default_data_dir() -> str:
     """User-level folder for history/cache/settings — the SHARED store.
@@ -316,3 +345,16 @@ APP_MODE: bool = os.environ.get("CHESS_APP_MODE", "0") == "1"
 # the Settings panel. Leave the base URL blank to keep the default subscription path.
 LOCAL_LLM_BASE_URL: str = os.environ.get("CHESS_LOCAL_LLM_BASE_URL", "").strip()
 LOCAL_LLM_MODEL: str = os.environ.get("CHESS_LOCAL_LLM_MODEL", "").strip()
+
+# --- Auto-update (server.core.updates) ----------------------------------------------------------
+# The app version (canonical = pyproject.toml). Surfaced via /api/app-config and compared against
+# the latest GitHub release tag so the board can show a non-blocking "update available" notice.
+APP_VERSION: str = _read_app_version()
+# GitHub repo that publishes Releases (the update source of truth). "owner/name".
+UPDATE_REPO: str = os.environ.get("CHESS_UPDATE_REPO", "Chess-analysis-mcp/tintins-chess-analysis").strip()
+# Master switch for the update check (the network call to GitHub). 0 disables it entirely.
+UPDATE_CHECK_ENABLED: bool = os.environ.get("CHESS_UPDATE_CHECK", "1") != "0"
+# Min seconds between GitHub release lookups (cached in-process + on disk so restarts don't re-hit).
+UPDATE_CHECK_INTERVAL: float = float(os.environ.get("CHESS_UPDATE_CHECK_INTERVAL", str(6 * 3600)))
+# HTTP timeout (seconds) for the GitHub API call.
+UPDATE_TIMEOUT: float = float(os.environ.get("CHESS_UPDATE_TIMEOUT", "8"))

@@ -11,8 +11,14 @@
   --best: #629924;
   /* Board scales with viewport height but caps out — and never takes more than ~half the viewport
      width, so on smaller laptops the board and the analysis column still fit side by side (the
-     board stays pinned; see .board-col). */
-  --board-size: min(68vh, 660px, 48vw);
+     board stays pinned; see .board-col). This is the *default*; the drag handle between the board
+     and the analysis column (.col-resizer) overrides it via --board-user (a px value, clamped +
+     persisted in JS), and a double-click on the handle clears the override to fall back here. */
+  --board-default: min(68vh, 660px, 48vw);
+  --board-size: var(--board-user, var(--board-default));
+  /* Height reserved for the pinned (sticky) header, so the sticky board column starts below it
+     instead of tucking underneath. */
+  --header-h: 52px;
   /* Full width of the board column = eval bar (20) + its gap (8) + the board. The win graph and
      the other under-board panels span this so their right edge lines up with the board's. */
   --col-width: calc(var(--board-size) + 28px);
@@ -33,6 +39,13 @@ header {
   display: flex;
   align-items: baseline;
   gap: 16px;
+  /* Pinned so the ⚙ Settings / ☰ Games buttons stay reachable while you scroll the analysis
+     column. Opaque background so content doesn't show through; z-index below the slide-in drawer
+     (95) and the modal overlays (100) so those still layer on top. */
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  background: var(--bg);
 }
 header h1 { font-size: 18px; margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
@@ -104,7 +117,20 @@ header h1 { font-size: 18px; margin: 0; }
   border-bottom: 1px solid #000;
 }
 .setup-banner[hidden] { display: none; }
-.setup-banner.err { background: #3a1d1d; color: #f3c9c9; } /* red: a blocker (Stockfish) */
+.setup-banner.err { background: #3a1d1d; color: #f3c9c9; } /* red: a blocker (Stockfish) / major update */
+.setup-banner.update { background: #12283a; color: #cfe3f3; } /* info-blue: update available (minor/patch) */
+.setup-banner.update a { color: #8fc4ff; }
+.setup-banner .sb-btn { /* inline "Update now" action button */
+  background: var(--accent); color: #10243a; border: none; border-radius: 4px;
+  padding: 4px 11px; font-weight: 600; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+}
+.setup-banner .sb-btn:hover { filter: brightness(1.08); }
+.setup-banner .sb-btn:disabled { opacity: 0.6; cursor: default; }
+/* Expanded step-by-step install guide (the read-only .app channel): stack full-width. */
+.setup-banner.guide { display: block; position: relative; padding-right: 36px; }
+.setup-banner.guide .sb-x { position: absolute; top: 8px; right: 10px; }
+.setup-banner .sb-steps { margin: 6px 0 2px; padding-left: 20px; }
+.setup-banner .sb-steps li { margin: 3px 0; }
 .setup-banner .sb-msg { flex: 1; }
 .setup-banner a { color: var(--accent); font-weight: 600; }
 .setup-banner.err a { color: #ffb4b4; }
@@ -135,13 +161,19 @@ main {
   gap: 10px;
   flex: 0 0 auto;
   position: sticky;
-  top: 12px;
+  top: var(--header-h);
   align-self: flex-start;
-  max-height: calc(100vh - 24px);
+  max-height: calc(100vh - var(--header-h) - 12px);
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
 }
+/* On a short window the column's content can exceed max-height. Don't let flex shrink the
+   children to fit — the board/controls are floored by their content, but the win graph holds
+   only an <svg> (min-content ~0), so without this ALL the overflow shrinkage lands on the graph
+   and collapses it to a sliver. Keep their sizes and let the column scroll instead (the intended
+   last-resort fallback). */
+.board-col > * { flex-shrink: 0; }
 
 .board-wrap { display: flex; gap: 8px; }
 
@@ -149,6 +181,55 @@ main {
   width: var(--board-size);
   height: var(--board-size);
 }
+
+/* iPad-split-view-style drag handle that sits in the gap between the board column and the
+   analysis column. position:fixed (so it stays beside the pinned board while you scroll) with a
+   left offset computed from --col-width, so it tracks the board's right edge as you resize. The
+   drag itself lives in main.js (initBoardResizer): it rewrites --board-user. */
+.col-resizer {
+  position: fixed;
+  top: var(--header-h);
+  left: calc(20px + var(--col-width) + 6px);
+  height: calc(100vh - var(--header-h) - 12px);
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none; /* we drive the drag with pointer events */
+  user-select: none;
+  z-index: 40; /* below the header (90) and the slide-in drawer (95) */
+}
+.col-resizer .grip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 7px;
+  height: 48px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid #000;
+  transition: background 0.15s ease;
+}
+.col-resizer .grip span {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.col-resizer:hover .grip,
+.col-resizer:focus-visible .grip,
+.col-resizer.dragging .grip {
+  background: var(--accent);
+}
+.col-resizer:hover .grip span,
+.col-resizer:focus-visible .grip span,
+.col-resizer.dragging .grip span {
+  background: #fff;
+}
+.col-resizer:focus-visible { outline: none; }
 
 #evalbar {
   width: 20px;
@@ -805,4 +886,6 @@ body.history-hidden .history-col { display: none; }
     width: 100%;
   }
   .side-col { width: 100%; flex-basis: auto; }
+  /* Columns stack, so there's no left/right boundary to drag. */
+  .col-resizer { display: none; }
 }
