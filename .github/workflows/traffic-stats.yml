@@ -1,12 +1,14 @@
 name: Traffic stats snapshot
 
-# Snapshots GitHub download/clone/view stats daily and commits the CSVs to the
-# orphan `stats` branch. Runs in GitHub's cloud — no local machine needed.
+# Snapshots this (public) repo's download/clone/view stats daily and commits the CSVs to a
+# SEPARATE PRIVATE repo, so the numbers aren't visible to the public. Runs in GitHub's cloud —
+# no local machine needed.
 #
-# REQUIRES a repo secret `TRAFFIC_TOKEN`: a classic Personal Access Token with
-# the `repo` scope (the built-in GITHUB_TOKEN gets 403 on /traffic endpoints).
-# Create one at https://github.com/settings/tokens, then add it under
-# repo Settings -> Secrets and variables -> Actions -> New repository secret.
+# REQUIRES a repo secret `TRAFFIC_TOKEN`: a classic Personal Access Token with the `repo` scope.
+# It needs to do two things the built-in GITHUB_TOKEN can't: read this repo's /traffic data
+# (owner-only) AND push to the private STATS_REPO below. Create one at
+# https://github.com/settings/tokens, then add it under repo Settings -> Secrets and variables
+# -> Actions -> New repository secret.
 
 on:
   schedule:
@@ -14,47 +16,46 @@ on:
   workflow_dispatch:        # lets you run it on demand from the Actions tab
 
 permissions:
-  contents: write
+  contents: read            # we no longer push to THIS repo; the stats go to the private repo
 
 concurrency:
   group: traffic-stats
   cancel-in-progress: false
 
+env:
+  SOURCE_REPO: Chess-analysis-mcp/tintins-chess-analysis   # repo whose stats we collect
+  STATS_REPO: DimaPdemler/tintins-chess-stats              # PRIVATE repo we write the CSVs to
+
 jobs:
   snapshot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main (for the collector script)
+      - name: Checkout this repo (for the collector script)
         uses: actions/checkout@v4
 
-      - name: Prepare the stats branch in a worktree
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --heads origin stats >/dev/null 2>&1; then
-            git fetch origin stats
-            git worktree add stats-data origin/stats
-            git -C stats-data checkout -B stats origin/stats
-          else
-            echo "stats branch does not exist yet — creating it"
-            git worktree add --detach stats-data
-            git -C stats-data checkout --orphan stats
-            git -C stats-data reset --hard
-          fi
-
-      - name: Collect + upsert stats
+      - name: Collect stats and push them to the private repo
         env:
           GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: |
-          python3 scripts/collect_traffic_stats.py --out-dir stats-data
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${STATS_REPO}.git"
 
-      - name: Commit + push if anything changed
-        run: |
+          # Clone the private store (or init it if it's brand-new/empty).
+          if ! git clone --depth 1 "$REMOTE" stats-data 2>/dev/null; then
+            mkdir -p stats-data
+            git -C stats-data init -q -b main
+            git -C stats-data remote add origin "$REMOTE"
+          fi
+
+          # Fetch this repo's traffic + downloads, upserting into the private repo's CSVs.
+          python3 scripts/collect_traffic_stats.py --out-dir stats-data --repo "$SOURCE_REPO"
+
           cd stats-data
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "stats: snapshot $(date -u +%Y-%m-%d)"
-            git push origin stats
+            git commit -q -m "stats: snapshot $(date -u +%Y-%m-%d)"
+            git push origin HEAD:main
           fi
