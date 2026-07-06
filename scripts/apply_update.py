@@ -41,8 +41,8 @@ _PRESERVE = {
     ".update-requested",
     "example_pgns",
     "settings.json",
-    "Tintin's AI Chess Analysis.command",
-    "Tintin's AI Chess Analysis.bat",
+    "Kibitz.command",
+    "Kibitz.bat",
 }
 _PRESERVE_SUFFIXES = (".command", ".bat")  # never rewrite a launcher that may be executing us
 

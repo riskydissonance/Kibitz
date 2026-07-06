@@ -16,7 +16,7 @@ def _make_install(tmp_path):
     (root / ".mcp.json").write_text("USER")
     (root / ".venv").mkdir()
     (root / ".venv" / "x").write_text("env")
-    (root / "Tintin's AI Chess Analysis.command").write_text("OLD LAUNCHER")
+    (root / "Kibitz.command").write_text("OLD LAUNCHER")
     return root
 
 
@@ -27,7 +27,7 @@ def _make_release(tmp_path):
     (src / "server" / "old.py").write_text("v2")        # updated
     (src / "server" / "new.py").write_text("NEW")        # added
     (src / ".mcp.json").write_text("SHOULD-NOT-WIN")     # must be skipped (preserved)
-    (src / "Tintin's AI Chess Analysis.command").write_text("NEW LAUNCHER")  # must be skipped
+    (src / "Kibitz.command").write_text("NEW LAUNCHER")  # must be skipped
     return src
 
 
@@ -38,7 +38,7 @@ def test_copy_over_success_preserves_and_updates(tmp_path):
     assert (install / "server" / "new.py").read_text() == "NEW"     # added
     assert (install / ".mcp.json").read_text() == "USER"            # preserved
     assert (install / ".venv" / "x").read_text() == "env"           # preserved
-    assert (install / "Tintin's AI Chess Analysis.command").read_text() == "OLD LAUNCHER"  # launcher untouched
+    assert (install / "Kibitz.command").read_text() == "OLD LAUNCHER"  # launcher untouched
     assert not list(install.glob(".update-backup-*"))               # backup cleaned on success
 
 

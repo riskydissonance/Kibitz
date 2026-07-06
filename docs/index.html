@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tintin's AI Chess Analysis: your mistakes, explained in words</title>
-  <meta name="description" content="Analyze a chess game with Stockfish, find where you went wrong, and, unlike a bare engine, get every mistake explained in plain words by Snowie, your AI coach, grounded in real engine lines." />
+  <title>Kibitz: your mistakes, explained in words</title>
+  <meta name="description" content="Analyze a chess game with Stockfish, find where you went wrong, and, unlike a bare engine, get every mistake explained in plain words by Kibitz, your AI coach, grounded in real engine lines." />
   <!-- Favicon reuses the app's icon (one level up from docs/). -->
   <link rel="icon" type="image/png" href="../frontend/favicon-32.png" />
   <link rel="icon" type="image/svg+xml" href="../frontend/favicon.svg" />
   <!-- Social share preview uses the hero screenshot. -->
-  <meta property="og:title" content="Tintin's AI Chess Analysis: your mistakes, explained in words" />
+  <meta property="og:title" content="Kibitz: your mistakes, explained in words" />
   <meta property="og:description" content="Stockfish finds where you went wrong; this tool tells you why, in plain English." />
   <meta property="og:image" content="screenshots/chess_new_pipeline.png" />
   <link rel="stylesheet" href="style.css" />
@@ -19,12 +19,12 @@
   <!-- ===================== HERO ===================== -->
   <header class="hero">
     <div class="wrap">
-      <div class="brand">Tintin's AI Chess Analysis</div>
+      <div class="brand">Kibitz</div>
       <span class="eyebrow">A chess coach you can talk to, that doesn't make things up</span>
       <h1>Stop guessing <span class="accent">why</span> you lost.</h1>
       <p class="tagline">
         Ask <strong>why</strong> a move was a mistake, or <strong>what</strong> you should have played
-        instead, and get a straight answer in plain words. <strong>Snowie</strong>, your AI coach, is
+        instead, and get a straight answer in plain words. <strong>Kibitz</strong>, your AI coach, is
         built on a full Stockfish review of your game, so every explanation is grounded in the real
         lines the engine saw rather than guessed.
       </p>
@@ -43,11 +43,11 @@
       <!-- HERO SCREENSHOT: docs/screenshots/chess_new_pipeline.png
            A single shot of the whole app: the board with a mistake selected (gray "played" arrow +
            green best-move arrows + red refutation arrow), the eval bar, the win graph underneath,
-           the mistake list, the Snowie AI-coach chat, and the Games panel. -->
+           the mistake list, the Kibitz AI-coach chat, and the Games panel. -->
       <figure>
         <img class="shot" src="screenshots/chess_new_pipeline.png"
-             alt="The review board: a chess position with played, best, and refutation arrows, an eval bar, a win graph, a mistake list, the Snowie AI coach answering a question, and the Games panel." />
-        <figcaption>The whole app at a glance: a Lichess-style board, the eval bar and win graph, your mistake list, and Snowie, your AI coach, all in one view.</figcaption>
+             alt="The review board: a chess position with played, best, and refutation arrows, an eval bar, a win graph, a mistake list, the Kibitz AI coach answering a question, and the Games panel." />
+        <figcaption>The whole app at a glance: a Lichess-style board, the eval bar and win graph, your mistake list, and Kibitz, your AI coach, all in one view.</figcaption>
       </figure>
     </div>
   </header>
@@ -58,7 +58,7 @@
       <h2>An engine tells you what. This tells you why.</h2>
       <p class="lead">
         A raw engine spits out a number and a best move. That's great if you already understand the
-        position, and useless if you don't. Snowie, the built-in AI coach, turns that number into a sentence.
+        position, and useless if you don't. Kibitz, the built-in AI coach, turns that number into a sentence.
       </p>
       <div class="contrast">
         <div class="card before">
@@ -67,7 +67,7 @@
           <p>Best move: c3. …and you're left to figure out the rest yourself.</p>
         </div>
         <div class="card after">
-          <div class="label">Snowie, your AI coach</div>
+          <div class="label">Kibitz, your AI coach</div>
           <p class="quote">
             “<b>Nf3 was a blunder</b>. Your win chance fell from 81% to 57%. The crushing reply was
             <b>c3!</b>, kicking the knight with nowhere safe to go. Instead, Nf3 invited …Nxf3+ and
@@ -106,8 +106,8 @@
         </div>
         <div class="feature">
           <span class="icon">🗣️</span>
-          <h3>AI coach (Snowie)</h3>
-          <p>Ask Snowie “why is this bad?” or “what should I do here?” and it answers from pre-computed engine facts, so it stays grounded.</p>
+          <h3>AI coach (Kibitz)</h3>
+          <p>Ask Kibitz “why is this bad?” or “what should I do here?” and it answers from pre-computed engine facts, so it stays grounded.</p>
         </div>
         <div class="feature">
           <span class="icon">🎯</span>
@@ -160,7 +160,7 @@
           <h3>Review my games — Mac</h3>
           <p>
             <a href="https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases/latest"><strong>Download
-            Tintin's AI Chess Analysis.app</strong></a> (from Releases), drag it into
+            Kibitz.app</strong></a> (from Releases), drag it into
             <strong>Applications</strong>, and open it (first time, unsigned: double-click, then
             <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>). It installs
             everything itself — no Homebrew or Python needed — then opens the board; paste any PGN, or
@@ -171,8 +171,8 @@
         <div class="opt">
           <h3>Review my games — Windows / Linux</h3>
           <p>
-            Double-click <strong>Tintin's AI Chess Analysis.bat</strong> (Windows) or
-            <strong>Tintin's AI Chess Analysis.command</strong> (Linux). The first launch installs
+            Double-click <strong>Kibitz.bat</strong> (Windows) or
+            <strong>Kibitz.command</strong> (Linux). The first launch installs
             everything, then opens the board — paste any PGN, or load your recent Lichess games.
           </p>
           <p class="opt-readme"><a href="https://github.com/Chess-analysis-mcp/tintins-chess-analysis#review-windows-linux">Full Windows / Linux steps in the README →</a></p>

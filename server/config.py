@@ -50,15 +50,25 @@ def _default_data_dir() -> str:
     read/write ONE history + analysis cache + coaching profile, with no machine-specific config.
     (The `.app` launcher also exports the macOS path explicitly, belt-and-suspenders.) Overridable
     with CHESS_DATA_DIR; set it to ``<repo>/.chess-review`` to keep data inside a dev checkout.
+
+    Installs that predate the Kibitz rename keep their data: if the new "Kibitz" folder doesn't
+    exist yet but the legacy one does, the legacy folder stays the live store.
     """
     home = os.path.expanduser("~")
     if sys.platform == "darwin":
-        return os.path.join(home, "Library", "Application Support", "Tintin AI Chess Analysis", "data")
-    if os.name == "nt":
+        new = os.path.join(home, "Library", "Application Support", "Kibitz", "data")
+        legacy = os.path.join(home, "Library", "Application Support", "Tintin AI Chess Analysis", "data")
+    elif os.name == "nt":
         base = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
-        return os.path.join(base, "Tintin AI Chess Analysis", "data")
-    base = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
-    return os.path.join(base, "tintin-ai-chess-analysis", "data")
+        new = os.path.join(base, "Kibitz", "data")
+        legacy = os.path.join(base, "Tintin AI Chess Analysis", "data")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+        new = os.path.join(base, "kibitz", "data")
+        legacy = os.path.join(base, "tintin-ai-chess-analysis", "data")
+    if not os.path.isdir(new) and os.path.isdir(legacy):
+        return legacy
+    return new
 
 
 def _resolve_data_dir() -> str:
@@ -165,10 +175,9 @@ MATE_SCORE_CP: int = 10000
 # silently become every fresh install's "me" (the downloadable app's launcher never sets
 # CHESS_USERNAME), suppressing the first-run prompt.
 #
-# LICHESS_USERNAME is specifically the Lichess handle, which is what drives the "open my latest game"
-# autoload — chess.com has no public game-fetch API, so only a Lichess handle is autoloadable.
-# CHESSCOM_USERNAME is the chess.com handle; it folds into USERNAME's profile as a chesscom-pinned
-# alias. These are derived together by `_compose_identity` (called from env at import and re-applied
+# LICHESS_USERNAME is specifically the Lichess handle (drives the Lichess "open my latest game"
+# autoload). CHESSCOM_USERNAME is the chess.com handle; it drives the chess.com game fetch +
+# auto-sync (server.core.chesscom) and folds into USERNAME's profile as a chesscom-pinned alias. These are derived together by `_compose_identity` (called from env at import and re-applied
 # from settings.json), so a chess.com-only user (no Lichess handle) is still canonically identified
 # by their chess.com name.
 USERNAME: str = ""
@@ -329,6 +338,15 @@ LICHESS_DEFAULT_MAX: int = int(os.environ.get("CHESS_LICHESS_MAX", "3"))
 # HTTP timeout (seconds) for Lichess requests.
 LICHESS_TIMEOUT: float = float(os.environ.get("CHESS_LICHESS_TIMEOUT", "20"))
 
+# Chess.com game import (server.core.chesscom). Uses the public published-data API (no auth).
+# CHESSCOM_API_BASE is overridable for testing. The auto-sync (POST /api/sync/chesscom) checks the
+# configured user's newest CHESSCOM_SYNC_MAX games on app launch and analyses any not yet in
+# history; CHESS_CHESSCOM_SYNC=0 disables the automatic sync (manual fetch still works).
+CHESSCOM_API_BASE: str = os.environ.get("CHESS_CHESSCOM_API_BASE", "https://api.chess.com").rstrip("/")
+CHESSCOM_TIMEOUT: float = float(os.environ.get("CHESS_CHESSCOM_TIMEOUT", "20"))
+CHESSCOM_SYNC_ENABLED: bool = os.environ.get("CHESS_CHESSCOM_SYNC", "1") != "0"
+CHESSCOM_SYNC_MAX: int = int(os.environ.get("CHESS_CHESSCOM_SYNC_MAX", "20"))
+
 # Endgame tablebase (server.core.tablebase). For <=7-man positions the in-browser chat / AI coach
 # facts include the EXACT theoretical result (win/draw/loss + DTZ/DTM) from the public Lichess
 # tablebase API, so endgame advice is precise instead of trusting a depth-limited eval. Best-effort
@@ -350,7 +368,7 @@ WEB_AUTOSTART: bool = os.environ.get("CHESS_WEB_AUTOSTART", "1") != "0"
 # Auto-open the board in the default browser the first time a game is analysed, so a
 # first-time user never has to be told the URL. Set CHESS_WEB_OPEN=0 to disable.
 WEB_OPEN: bool = os.environ.get("CHESS_WEB_OPEN", "1") != "0"
-# "App mode": set by the double-click launcher (Tintin's AI Chess Analysis.command / .bat) when serving the
+# "App mode": set by the double-click launcher (Kibitz.command / Kibitz.bat) when serving the
 # board standalone for users who never touch a terminal. The frontend reads it via
 # /api/app-config and, when on, auto-loads the user's most recent Lichess game on open. Left off
 # (0) for the MCP-driven board and dev `run_web.py <pgn>` runs, so neither gets a surprise autoload.

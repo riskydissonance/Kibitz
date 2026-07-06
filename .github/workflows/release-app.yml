@@ -1,5 +1,5 @@
 # Build the macOS .app bundle and attach it to a GitHub Release, so non-terminal Mac users can
-# download "Tintin's AI Chess Analysis.app" instead of running scripts/build_app.sh themselves.
+# download "Kibitz.app" instead of running scripts/build_app.sh themselves.
 #
 # Triggers:
 #   • pushing a version tag (v1.0, v1.2.3, …) — builds and publishes a Release for that tag.
@@ -33,13 +33,13 @@ jobs:
 
       # ditto preserves the bundle's structure/permissions in the zip (plain `zip` can mangle it).
       - name: Zip the bundle
-        run: ditto -c -k --sequesterRsrc --keepParent "Tintin's AI Chess Analysis.app" "Tintins-AI-Chess-Analysis-macos.zip"
+        run: ditto -c -k --sequesterRsrc --keepParent "Kibitz.app" "Kibitz-macos.zip"
 
       - name: Upload as a build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tintins-AI-Chess-Analysis-macos
-          path: Tintins-AI-Chess-Analysis-macos.zip
+          name: Kibitz-macos
+          path: Kibitz-macos.zip
 
       # On a tag push, publish (or update) the Release and attach the zip.
       - name: Attach to the Release
@@ -65,5 +65,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file "$NOTES_FILE" \
-            "Tintins-AI-Chess-Analysis-macos.zip" \
-          || gh release upload "${GITHUB_REF_NAME}" "Tintins-AI-Chess-Analysis-macos.zip" --clobber
+            "Kibitz-macos.zip" \
+          || gh release upload "${GITHUB_REF_NAME}" "Kibitz-macos.zip" --clobber

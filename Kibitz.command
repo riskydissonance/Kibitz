@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Tintin's AI Chess Analysis — double-click launcher (macOS / Linux).
+# Kibitz — double-click launcher (macOS / Linux).
 #
 # First run: installs everything (uv + Stockfish + deps) via ./install.sh.
 # Every run: starts the board and opens your most recent Lichess game in the browser.
@@ -85,11 +85,11 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 if curl -fsS "${URL}/api/app-config" >/dev/null 2>&1; then
   if [ -d ".git" ]; then
     # Dev checkout: don't re-attach to the old instance — stop it and start fresh so this launch runs
-    # the latest code (and a clean Snowie chat). End-user installs (no .git) keep the reuse shortcut.
-    echo "Restarting Tintin's AI Chess Analysis with the latest code…"
+    # the latest code (and a clean Kibitz chat). End-user installs (no .git) keep the reuse shortcut.
+    echo "Restarting Kibitz with the latest code…"
     free_port
   else
-    echo "Tintin's AI Chess Analysis is already running — opening ${URL}"
+    echo "Kibitz is already running — opening ${URL}"
     open "$URL" 2>/dev/null || xdg-open "$URL" 2>/dev/null || true
     close_window
     exit 0
@@ -134,12 +134,12 @@ fi
 
 # First-run install: no uv, or the project env hasn't been built yet.
 if ! command -v uv >/dev/null 2>&1 || [ ! -d ".venv" ]; then
-  echo "First-time setup — installing Tintin's AI Chess Analysis (this happens only once)…"
+  echo "First-time setup — installing Kibitz (this happens only once)…"
   ./install.sh
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
-echo "Starting Tintin's AI Chess Analysis… close the browser tab (or this window) to quit."
+echo "Starting Kibitz… close the browser tab (or this window) to quit."
 # Run in the foreground (not exec) so we can close this window once the server exits — which the
 # server does automatically a few seconds after the browser tab is closed (app-liveness watchdog).
 # CHESS_WEB_OPEN=0: the splash tab above redirects to the board itself, so don't open another.

@@ -1,4 +1,4 @@
-# Chess Review MCP
+# Kibitz — your AI chess tutor
 
 [![CI](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -7,15 +7,16 @@ A chess coach you can actually **talk to**, and one that **doesn't make things u
 was a mistake or what you should have played, and get a straight answer **in words**, grounded in
 real **Stockfish** lines instead of guessed. Under the hood it reviews your game with the engine and
 finds exactly where you went wrong; the difference is it then explains it. Works with games from
-**anywhere** (Lichess, Chess.com, or any PGN you can paste), and Lichess players get a few extras
-(fetch your recent games by username, auto-load on launch). It runs two ways: from the **Claude Code
+**anywhere** (Lichess, Chess.com, or any PGN you can paste): both Lichess and Chess.com games can
+be fetched by username, your latest game auto-loads on launch, and new **Chess.com games sync
+automatically** into your history. It runs two ways: from the **Claude Code
 terminal** (as an MCP server) and as an **interactive web board** that share one engine and one
 analysis, so they never disagree.
 
-![Chess Review board: the board with played, best, and refutation arrows, an eval bar, a win graph, the mistake list, the Snowie AI coach, and the Games panel](docs/screenshots/chess_new_pipeline.png)
+![Chess Review board: the board with played, best, and refutation arrows, an eval bar, a win graph, the mistake list, the Kibitz AI coach, and the Games panel](docs/screenshots/chess_new_pipeline.png)
 
 > **Requires a Claude subscription** *(or a local model)***.** The AI-coach explanations and chat
-> (Snowie) — the whole "explained in words" part — run on **headless `claude`, using your existing
+> (Kibitz) — the whole "explained in words" part — run on **headless `claude`, using your existing
 > Claude subscription** (no API key, no per-token billing). You need the [`claude`
 > CLI](https://docs.claude.com/en/docs/claude-code/overview) installed and logged in
 > (`claude login`). Prefer to stay fully offline? You can instead point the AI coach at a **local
@@ -41,8 +42,16 @@ analysis, so they never disagree.
 - **Eval bar + Lichess-style win graph** that orient to the side you're reviewing (black-on-bottom
   when you played black). Click the graph or use ← / → to scrub the whole game.
 - **Move arrows:** gray = the move you played, green = engine best moves (live **multi-PV** with
-  **progressive deepening**, thicker arrow = better move), red = the refutation of a move you try.
-- **In-browser AI coach (Snowie).** A "why? / what now?" chat powered by headless `claude -p`
+  **progressive deepening**, thicker arrow = better move), red = the refutation of a move you try,
+  and **yellow = threats** (toggle **Show threats** or press `t`) — what the side that just moved
+  is threatening to play next.
+- **Chess.com auto-sync.** Set your Chess.com username once and every launch fetches your newest
+  games and analyzes the ones it hasn't seen, straight into **My games** (there's also a manual
+  ⟳ Sync button on the Chess.com tab).
+- **Insights panel.** Recurring themes and stats aggregated across every analyzed game in a chosen
+  period (today / last 7 days / last 30 days / all time): record, average accuracy, your most
+  common mistake motifs, weakest phase, and most-played openings.
+- **In-browser AI coach (Kibitz).** A "why? / what now?" chat powered by headless `claude -p`
   (your Claude subscription), fed pre-computed engine facts so answers are grounded, not estimated.
 - **Cross-game history + coaching profile.** Every reviewed game is saved locally, tagged with
   recurring mistake motifs (hung pieces, missed forks, back-rank, time trouble…), and rolled up
@@ -87,13 +96,14 @@ everything (it uses [uv](https://docs.astral.sh/uv/) to download a compatible Py
 ### 🎯 I just want to review my games
 
 Zero terminal required. Open the app and it brings up a chess board in your browser, ready to
-review a game from **any source** — paste or upload a PGN (Chess.com, OTB, anywhere), or, if you
-play on **Lichess**, just give it your username and it loads your recent games for you.
+review a game from **any source** — give it your **Lichess** or **Chess.com** username and it
+fetches your recent games for you (Chess.com games even sync automatically on every launch), or
+paste / upload a PGN from anywhere (OTB, another site, a coach's file).
 
 <a id="review-mac"></a>
 **macOS — the app.** Download the zip from the
 [Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases). Unzipping it
-gives you **`Tintin's AI Chess Analysis.app`**. Drag that into **Applications**, and open it.
+gives you **`Kibitz.app`**. Drag that into **Applications**, and open it.
 
 - **First open:** it's unsigned, so macOS blocks it once. Double-click it (you'll get a "cannot
   verify" / "blocked" message — click **Done**), then go to **System Settings → Privacy &
@@ -101,7 +111,7 @@ gives you **`Tintin's AI Chess Analysis.app`**. Drag that into **Applications**,
   do this once. *(On older macOS you can instead right-click the app → **Open** → **Open**.)*
 - The app installs Stockfish + its Python env on first run (needs internet once), then opens the
   board. Its environment and your games/settings live in
-  `~/Library/Application Support/Tintin AI Chess Analysis/`, **outside** the app, so your data
+  `~/Library/Application Support/Kibitz/`, **outside** the app, so your data
   survives updates. Setup problems show in a dialog; logs go to that folder's `launch.log`.
 
 <a id="review-windows-linux"></a>
@@ -120,19 +130,22 @@ first, drag the folder out to your Desktop, or right-click the zip → **Extract
 
 **Step 3 — double-click the launcher** inside that folder:
 
-- **Windows:** **`Tintin's AI Chess Analysis.bat`** (if SmartScreen warns: **More info → Run anyway**)
-- **Linux:** **`Tintin's AI Chess Analysis.command`**
+- **Windows:** **`Kibitz.bat`** (if SmartScreen warns: **More info → Run anyway**)
+- **Linux:** **`Kibitz.command`**
 
 The **first launch** installs everything (uv + Stockfish + the env) and can take a couple of
 minutes — a loading page opens in your browser while it works. Every launch after opens straight to
 the board.
 
 **Once the board is open (any platform), load a game from wherever you play** — via the **Games**
-panel (☰), which has three tabs:
+panel (☰), which has four tabs:
 
 - **Paste PGN** — works for *everyone*. Paste any PGN, or **Upload .pgn** a file (e.g. a Chess.com
   export of one *or many* games), pick your side, and click **Analyze**; all games land in **My
   games**. This is the universal path — no account of any kind needed.
+- **Chess.com** — type any handle to fetch that player's recent games, or press **⟳ Sync new
+  games** to pull in everything of yours the app hasn't analyzed yet (this also happens
+  automatically on launch once your Chess.com username is set).
 - **Lichess** *(bonus for Lichess players)* — type any handle to fetch that player's recent games,
   and click **"Set as my account"** to make it yours: that drives **My games**, your coaching
   profile, and (in the app) auto-loading your latest game on launch.
@@ -174,13 +187,13 @@ web board for free — see [Usage](#usage).
 Releases page ships:
 
 ```bash
-./scripts/build_app.sh        # → Tintin's AI Chess Analysis.app (in the repo root)
+./scripts/build_app.sh        # → Kibitz.app (in the repo root)
 ```
 
 Drag it into **/Applications** and open it (first time, unsigned: double-click, then **System
 Settings → Privacy & Security → Open Anyway**). The bundle is
 immutable at runtime; its Python env + your data live under
-`~/Library/Application Support/Tintin AI Chess Analysis/`. To customise the icon, replace
+`~/Library/Application Support/Kibitz/`. To customise the icon, replace
 `assets/app_icon.png` (1024×1024) or drop an `assets/AppIcon.icns`, then rebuild. It still needs the
 network on first run and the `claude` CLI for the in-browser chat.
 
@@ -207,7 +220,7 @@ that interpreter instead of `uv run python`.
 - **Internet connection** for the web board's first load (chessground / chess.js come from a CDN, so
   there's no Node/npm build step).
 - **A Claude subscription + the `claude` CLI** (Claude Code), installed and logged in
-  (`claude login`) — required for the AI-coach explanations and chat (Snowie) and for the Claude
+  (`claude login`) — required for the AI-coach explanations and chat (Kibitz) and for the Claude
   Code terminal workflow. It runs on your **existing subscription**, no API key or per-token
   billing. The web board's bare engine review (mistakes, eval bar, arrows) works without it, but the
   plain-English explanations — the point of the tool — do not.
@@ -240,9 +253,9 @@ It analyzes the game (~20 to 45s depending on length), opens your browser to
 The third argument is your color: `white`, `black`, or `auto` (infer from the PGN headers).
 
 **Browse & reopen past games (the Games panel).** A collapsible third column (toggle with the **☰
-Games** button) lists games you can open in the board. The panel has three tabs: **My games**
-(your previously-analyzed local games), **Lichess** (your recent Lichess games, with a lookup box
-for any handle), and **Paste PGN** — paste a PGN from anywhere (e.g. **Chess.com → Share → PGN**),
+Games** button) lists games you can open in the board. The panel has four tabs: **My games**
+(your previously-analyzed local games), **Lichess** and **Chess.com** (your recent online games,
+with a lookup box for any handle), and **Paste PGN** — paste a PGN from anywhere,
 pick which color you played (or leave it on *auto*), and click **Analyze**. Click any game (or
 submit a paste) and the board opens **immediately** — you can step through the moves with ← / →
 while the engine analysis runs in the background; the eval bar, win graph, mistake list, comments,
@@ -291,11 +304,11 @@ Tools exposed: `mcp__chess__analyze_game`, `mcp__chess__get_engine_line`, `mcp__
 >
 > 📊 Open the interactive board: http://127.0.0.1:8765
 
-### Snowie — the in-browser AI coach
+### Kibitz — the in-browser AI coach
 
-**Snowie** is the chat panel: it answers position-aware questions using your Claude subscription.
+**Kibitz** is the chat panel: it answers position-aware questions using your Claude subscription.
 Each question is handed the **current board** (for *"what should I do here?"*) and the **move in
-question** (for *"why is this bad?"*), each with pre-computed Stockfish facts, so Snowie reasons
+question** (for *"why is this bad?"*), each with pre-computed Stockfish facts, so Kibitz reasons
 from real lines. Follow-up questions remember the conversation.
 
 <!-- TODO: screenshot of the chat panel with a Q&A.
@@ -353,7 +366,7 @@ opt in).
 
 - **What's saved.** `analyze_game` appends one compact JSON record per reviewed game to
   `<DATA_DIR>/history/games.jsonl`. `DATA_DIR` defaults to a per-user app-data folder (macOS:
-  `~/Library/Application Support/Tintin AI Chess Analysis/data`) that both Claude Code **and** the
+  `~/Library/Application Support/Kibitz/data`) that both Claude Code **and** the
   double-click app use, so they share one history/cache automatically. Re-analyzing the same game —
   even at a deeper depth — supersedes the old record rather than duplicating it.
 - **Mistake motifs.** Each flagged mistake is tagged with cheap, engine-free heuristics in three
@@ -419,7 +432,7 @@ All settable via environment variables too (sensible defaults shown); `settings.
 | `CHESS_WEB_AUTOSTART` | `1` | Set `0` to stop the MCP server from launching the board. |
 | `CHESS_ALIASES` | *(empty)* | Your other handles (comma-separated) that fold into `CHESS_USERNAME` for history + auto side-detection. |
 | `CHESS_HISTORY` | `1` | Set `0` to disable saving game history & the coaching profile. |
-| `CHESS_DATA_DIR` | *(per-user app-data dir)* | Where history (`games.jsonl`, profile, `identities.json`) is stored. Defaults to a user-level folder shared by Claude Code and the app (macOS: `~/Library/Application Support/Tintin AI Chess Analysis/data`); set `<repo>/.chess-review` to keep it in the checkout. |
+| `CHESS_DATA_DIR` | *(per-user app-data dir)* | Where history (`games.jsonl`, profile, `identities.json`) is stored. Defaults to a user-level folder shared by Claude Code and the app (macOS: `~/Library/Application Support/Kibitz/data`); set `<repo>/.chess-review` to keep it in the checkout. |
 | `CHESS_PROFILE_RECENT` | `100` | Games in the profile's `recent` sliding window. |
 | `CHESS_PROFILE_LIFETIME` | `all` | Lifetime view span; positive N = last N games, `0` = omit it (pure sliding window). |
 | `CHESS_SESSION_TTL` | `86400` | Seconds of inactivity before the server self-terminates (`0` disables the watchdog). |
@@ -482,7 +495,7 @@ This tool is **local-first**, but it is not fully offline, so here's the honest 
 - **The web board is loopback-only.** The board listens on `127.0.0.1` and is guarded against
   cross-site / DNS-rebinding requests, so other websites you visit can't reach it, read your game
   data, or spend your Claude quota.
-- **The AI coach (Snowie) sends data to Anthropic.** The in-browser chat and AI-coach summaries run
+- **The AI coach (Kibitz) sends data to Anthropic.** The in-browser chat and AI-coach summaries run
   through the headless `claude` CLI **under your own Claude subscription**. To answer, they send the
   current position (FEN) and pre-computed engine facts to Claude. They also include a summary of
   your recurring-mistake profile, but **only if** you enable *"Personalize AI coach with my history"*

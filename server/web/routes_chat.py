@@ -73,7 +73,7 @@ def chat_reset() -> dict:
 
     The chat store is process-local, so a server that restarts already starts clean. This covers
     the case where the *same* server is reused across app launches (e.g. a long-lived board that
-    didn't exit on close): a brand-new browser session wipes the old Snowie conversation so reopening
+    didn't exit on close): a brand-new browser session wipes the old Kibitz conversation so reopening
     the app shows an empty chat. A refresh keeps its sessionStorage flag and never calls this, so it
     preserves the conversation.
     """
