@@ -126,6 +126,27 @@ def load(pgn: str, player: str = "auto") -> Optional[ReviewSession]:
         return None
 
 
+def mistake_lines(game_id: str, side: str) -> dict[int, list[str]]:
+    """Best-move PV per mistake ply for a cached game: {ply: best_line_uci}.
+
+    Lets the puzzle trainer recover full tactic/mate sequences for history records written before
+    `best_line_uci` was stored on them (the cached ReviewSession always had the lines). Raw-JSON
+    read on purpose — no pydantic validation needed for two fields. Best-effort: {} on any miss.
+    """
+    try:
+        with open(_path(game_id, side), "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if payload.get("version") != CACHE_VERSION:
+            return {}
+        return {
+            int(m["ply"]): list(m.get("best_line_uci") or [])
+            for m in payload.get("session", {}).get("mistakes", [])
+            if m.get("ply") is not None
+        }
+    except Exception:  # pragma: no cover - a bad cache file just means "no lines"
+        return {}
+
+
 def _prune() -> None:
     """Keep at most ``config.ANALYSIS_CACHE_MAX`` entries, dropping least-recently-used first."""
     cap = config.ANALYSIS_CACHE_MAX

@@ -934,6 +934,11 @@ body.history-hidden .history-col { display: none; }
   color: var(--text); font-size: 11.5px; padding: 4px 7px;
 }
 
+/* Focus mode (puzzle drill / Puzzles / Insights tabs): the moves-mistakes-chat column describes a
+   game the user isn't looking at, so it (and its resize handle) gets out of the way. */
+body.focus-mode .side-col { display: none; }
+body.focus-mode .col-resizer { display: none; }
+
 /* --- puzzle trainer -------------------------------------------------------------------------
    The Puzzles tab in the Games panel: weakness chips (one per recurring motif) + the Lichess
    study export; plus the Reveal/Next control bar that appears under the board while drilling. */

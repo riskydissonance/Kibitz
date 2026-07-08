@@ -21,11 +21,65 @@ from typing import Optional
 
 import chess
 
+from server.core import analysis_cache
 from server.core import history
 
 # Blunders are the most instructive (biggest swings), then mistakes, then inaccuracies. Used both
 # to sort puzzles hardest-lesson-first and to let the UI offer a severity filter.
 _KIND_ORDER = {"blunder": 0, "mistake": 1, "inaccuracy": 2}
+
+# Motifs where the engine's follow-up IS the lesson (a concrete tactic), so the drill continues
+# past the first move while the sequence stays forcing. Positional slips drill one move only —
+# a long quiet PV there is engine noise, not a combination to find.
+_TACTICAL_MOTIFS = {
+    "missed_mate", "allowed_mate", "missed_capture", "missed_fork", "hung_piece", "back_rank",
+}
+
+_MAX_DRILL_PLIES = 9  # up to 5 solver moves; mate lines still end exactly on the mate
+
+
+def _drill_line(fen: str, pv: list[str], motifs: list[str]) -> tuple[list[str], list[str], bool]:
+    """The playable drill sequence from `pv`: (ucis, sans, ends_in_mate).
+
+    Replays the PV validating legality, then decides how much of it the solver must find:
+      - a line reaching CHECKMATE keeps everything up to (and including) the mating move;
+      - a tactical mistake (see _TACTICAL_MOTIFS) keeps the FORCING prefix — each further solver
+        move must be a capture, check or promotion, stopping before the first quiet move;
+      - anything else is a one-move puzzle.
+    Always ends on a solver move (odd length), never exceeds _MAX_DRILL_PLIES.
+    """
+    board = chess.Board(fen)
+    moves: list[chess.Move] = []
+    sans: list[str] = []
+    forcing: list[bool] = []  # per ply: was the move a capture / check / promotion?
+    mate_at: Optional[int] = None  # ply index whose move delivered mate
+    for i, uci in enumerate(pv[:_MAX_DRILL_PLIES]):
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            break
+        if not board.is_legal(mv):
+            break
+        forcing.append(bool(board.is_capture(mv) or mv.promotion or board.gives_check(mv)))
+        sans.append(board.san(mv))
+        board.push(mv)
+        moves.append(mv)
+        if board.is_checkmate():
+            mate_at = i
+            break
+
+    if not moves:
+        return [], [], False
+    if mate_at is not None and mate_at % 2 == 0:  # the solver delivers the mate — play it all out
+        keep = mate_at + 1
+        return [m.uci() for m in moves[:keep]], sans[:keep], True
+
+    keep = 1
+    if _TACTICAL_MOTIFS & set(motifs or []):
+        # Extend two plies at a time (opponent reply + our next move) while our move stays forcing.
+        while keep + 2 <= len(moves) and forcing[keep + 1]:
+            keep += 2
+    return [m.uci() for m in moves[:keep]], sans[:keep], False
 
 
 def _san(fen: str, uci: str) -> Optional[str]:
@@ -40,11 +94,13 @@ def _san(fen: str, uci: str) -> Optional[str]:
         return None
 
 
-def _puzzle_from_mistake(rec: dict, m: dict) -> Optional[dict]:
+def _puzzle_from_mistake(rec: dict, m: dict, pv: Optional[list[str]] = None) -> Optional[dict]:
     """One puzzle dict from a stored mistake, or None if it can't be a solvable puzzle.
 
     A mistake makes a puzzle only when we have the position AND a concrete better move to find,
     and that better move actually differs from what was played (else there's nothing to solve).
+    `pv` is the engine's full best line when known (record field or analysis-cache); the drill
+    then continues past move one for tactics and plays mates out to the end.
     """
     fen = (m.get("fen_before") or "").strip()
     solution = (m.get("best_uci") or "").strip()
@@ -63,6 +119,10 @@ def _puzzle_from_mistake(rec: dict, m: dict) -> Optional[dict]:
         return None
 
     motifs = list(m.get("motifs") or [])
+    line = pv if pv and pv[0] == solution else [solution]
+    line_uci, line_san, mate = _drill_line(fen, line, motifs)
+    if not line_uci:  # can't happen once `solution` validated legal, but stay defensive
+        line_uci, line_san, mate = [solution], [solution_san], False
     return {
         "id": f"{rec.get('game_id', '')}:{m.get('ply', 0)}",
         "game_id": rec.get("game_id"),
@@ -78,6 +138,11 @@ def _puzzle_from_mistake(rec: dict, m: dict) -> Optional[dict]:
         "played_san": m.get("san") or _san(fen, played),
         "solution_uci": solution,
         "solution_san": solution_san,
+        # The full drill sequence (solver moves at even indices, engine replies between); one
+        # entry = a plain single-move puzzle. `mate` marks a line that ends in checkmate.
+        "line_uci": line_uci,
+        "line_san": line_san,
+        "mate": mate,
         "classification": m.get("classification"),
         "phase": m.get("phase"),
         "win_drop": m.get("win_drop", 0.0),
@@ -103,12 +168,22 @@ def build_puzzles(
     kept = set(kinds) if kinds else None
     puzzles: list[dict] = []
     for rec in history.my_records(days, data_dir):
+        cached_pvs: Optional[dict[int, list[str]]] = None  # analysis-cache lines, fetched lazily
         for m in rec.get("mistakes", []):
             if kept is not None and m.get("classification") not in kept:
                 continue
             if motif is not None and motif not in (m.get("motifs") or []):
                 continue
-            p = _puzzle_from_mistake(rec, m)
+            # Full engine PV for the sequence drill: on the record for new games; recovered from
+            # the analysis cache for records written before best_line_uci was stored.
+            pv = m.get("best_line_uci")
+            if not pv:
+                if cached_pvs is None:
+                    cached_pvs = analysis_cache.mistake_lines(
+                        rec.get("game_id") or "", rec.get("reviewed_side") or ""
+                    )
+                pv = cached_pvs.get(m.get("ply"))
+            p = _puzzle_from_mistake(rec, m, pv)
             if p is not None:
                 puzzles.append(p)
 

@@ -661,6 +661,10 @@ def build_game_record(sess: ReviewSession, data_dir: Optional[str] = None) -> di
                 "uci": m.move_uci,
                 "best_san": m.best_move_san,
                 "best_uci": best_uci,
+                # Full engine PV (≤12 plies), so the puzzle trainer can drill the whole tactic /
+                # mate sequence, not just the first move. Older records lack it; the trainer then
+                # falls back to the analysis cache (see analysis_cache.mistake_lines).
+                "best_line_uci": list(m.best_line_uci or [])[:12],
                 "classification": m.classification,
                 "win_before": round(m.win_before, 1),
                 "win_after": round(m.win_after, 1),

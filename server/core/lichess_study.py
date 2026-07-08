@@ -74,15 +74,27 @@ def puzzle_pgn(puzzle: dict) -> str:
     lesson += ". Find the move you missed."
     game.comment = lesson
 
-    solution = chess.Move.from_uci(puzzle["solution_uci"])
-    main = game.add_variation(solution, nags={_NAG_BEST})
-    main.comment = "The move to find."
+    # Mainline = the whole drill sequence (solution + forced follow-up / mate), so practice mode
+    # asks for every move of the tactic. Single-move puzzles just get their one move.
+    line = puzzle.get("line_uci") or [puzzle["solution_uci"]]
+    node = game
+    for i, uci in enumerate(line):
+        mv = chess.Move.from_uci(uci)
+        if not board.is_legal(mv):
+            break
+        board.push(mv)
+        node = node.add_variation(mv, nags={_NAG_BEST} if i == 0 else set())
+        if i == 0:
+            node.comment = "The move to find." if len(line) == 1 else "The move to find — play out the whole sequence."
+    if puzzle.get("mate") and board.is_checkmate():
+        node.comment = ((node.comment or "") + " Checkmate.").strip()
 
     played_uci = (puzzle.get("played_uci") or "").strip()
     if played_uci and played_uci != puzzle["solution_uci"]:
         try:
             played = chess.Move.from_uci(played_uci)
-            if played in board.legal_moves:
+            start = chess.Board(puzzle["fen"])
+            if start.is_legal(played):
                 var = game.add_variation(played, nags={_NAG_BLUNDER})
                 var.comment = "The move you played."
         except ValueError:

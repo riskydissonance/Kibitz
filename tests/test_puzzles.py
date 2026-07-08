@@ -266,3 +266,78 @@ def test_create_study_bad_token_maps_to_friendly_error(monkeypatch):
     monkeypatch.setattr(lichess_study.httpx, "post", lambda *a, **k: _Resp())
     with pytest.raises(lichess_study.StudyError, match="study:write"):
         lichess_study.create_study("x", [{"fen": _FEN_W, "solution_uci": "e1g1", "color": "white"}])
+
+
+# --- multi-move drill lines ----------------------------------------------------------------
+# Kb5+Qd1 vs Ka8: 1.Kb6 Kb8 (forced) 2.Qd8# — a real mate-in-2 to exercise the sequence drill.
+_FEN_M2 = "k7/8/8/1K6/8/8/8/3Q4 w - - 0 1"
+_PV_M2 = ["b5b6", "a8b8", "d1d8"]
+
+
+def test_mate_line_played_to_the_end(data_dir):
+    _write(
+        [_rec("g1", [_mistake(fen=_FEN_M2, played="d1d2", best="b5b6", best_san="Kb6",
+                              motifs=["missed_mate"]) | {"best_line_uci": _PV_M2}])],
+        data_dir,
+    )
+    (p,) = puzzles.build_puzzles(data_dir=data_dir)
+    assert p["line_uci"] == _PV_M2
+    assert p["line_san"] == ["Kb6", "Kb8", "Qd8#"]
+    assert p["mate"] is True
+
+
+def test_tactical_line_keeps_forcing_prefix_only(data_dir):
+    # Qd2 vs qd5: 1.Qxd5 (capture) Ke7 2.Qb7+ (check) — kept; a quiet 3rd move would be dropped.
+    fen = "4k3/8/8/3q4/8/8/3Q4/4K3 w - - 0 1"
+    pv = ["d2d5", "e8e7", "d5b7"]
+    _write(
+        [_rec("g1", [_mistake(fen=fen, played="d2a5", best="d2d5", best_san="Qxd5",
+                              motifs=["missed_capture"]) | {"best_line_uci": pv}])],
+        data_dir,
+    )
+    (p,) = puzzles.build_puzzles(data_dir=data_dir)
+    assert p["line_uci"] == pv  # capture, forced reply, check — all forcing
+    assert p["mate"] is False
+
+
+def test_quiet_mistake_stays_single_move(data_dir):
+    # Same line, but a positional motif: the drill must not demand a long quiet engine PV.
+    fen = "4k3/8/8/3q4/8/8/3Q4/4K3 w - - 0 1"
+    _write(
+        [_rec("g1", [_mistake(fen=fen, played="d2a5", best="d2d5", best_san="Qxd5",
+                              motifs=["pawn_grab"]) | {"best_line_uci": ["d2d5", "e8e7", "d5b7"]}])],
+        data_dir,
+    )
+    (p,) = puzzles.build_puzzles(data_dir=data_dir)
+    assert p["line_uci"] == ["d2d5"]
+
+
+def test_line_recovered_from_analysis_cache(data_dir, monkeypatch):
+    # A record written before best_line_uci existed: the trainer pulls the PV from the cached
+    # ReviewSession keyed by the same (game_id, side).
+    monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    _write(
+        [_rec("g1", [_mistake(fen=_FEN_M2, played="d1d2", best="b5b6", best_san="Kb6",
+                              motifs=["missed_mate"], ply=7)])],
+        data_dir,
+    )
+    cache_dir = os.path.join(data_dir, "analysis-cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(os.path.join(cache_dir, "g1_white.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "session": {"mistakes": [{"ply": 7, "best_line_uci": _PV_M2}]}}, fh)
+    (p,) = puzzles.build_puzzles(data_dir=data_dir)
+    assert p["line_uci"] == _PV_M2
+    assert p["mate"] is True
+
+
+def test_puzzle_pgn_multi_move_mainline(data_dir):
+    _write(
+        [_rec("g1", [_mistake(fen=_FEN_M2, played="d1d2", best="b5b6", best_san="Kb6",
+                              motifs=["missed_mate"]) | {"best_line_uci": _PV_M2}])],
+        data_dir,
+    )
+    (p,) = puzzles.build_puzzles(data_dir=data_dir)
+    pgn = lichess_study.puzzle_pgn(p)
+    assert "Kb6 $3" in pgn and "Kb8" in pgn and "Qd8#" in pgn  # whole sequence is the mainline
+    assert "play out the whole sequence" in pgn
+    assert "( 1. Qd2 $4" in pgn  # the played move still hangs off the start as the ?? sideline

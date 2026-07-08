@@ -2089,6 +2089,13 @@ function renderInsights(d) {
 // row picks the section (Games / Puzzles / Insights); the sub-row (Games only) picks the source.
 let lastGamesMode = "normal"; // which Games source to return to when re-entering the Games tab
 
+// Hide the game side column (moves / mistakes / AI-coach chat) when the user is in a context
+// where it's about a game they're not looking at: a puzzle drill, or the Puzzles/Insights tabs.
+function updateFocusMode() {
+  const on = !!puzzle || historyMode === "puzzles" || historyMode === "insights";
+  document.body.classList.toggle("focus-mode", on);
+}
+
 function activateTab(mode) {
   historyMode = mode;
   const inGames = !["puzzles", "insights"].includes(mode);
@@ -2108,6 +2115,7 @@ function activateTab(mode) {
   $("insights").style.display = mode === "insights" ? "block" : "none";
   $("history-list").style.display = inGames && mode !== "paste" ? "" : "none";
   $("history-status").style.display = mode === "insights" ? "none" : "";
+  updateFocusMode();
 }
 
 // Update the "Set as my account" button to reflect whether `who` (lowercased) is already you.
@@ -2185,11 +2193,19 @@ async function startPuzzles(motif) {
   showPuzzle(0);
 }
 
+// The full drill sequence for a puzzle: solver moves at even indices, engine replies between.
+// Single-move puzzles (old records with no cached line, quiet positional slips) have length 1.
+function puzzleLine(p) {
+  return p.line_uci && p.line_uci.length ? p.line_uci : [p.solution_uci];
+}
+
 // Reset per-puzzle state and paint the board for puzzle `i` (side to move = the solver).
 function showPuzzle(i) {
   if (!puzzle) return;
   puzzle.idx = clamp(i, 0, puzzle.list.length - 1);
   puzzle.tries = 0;
+  puzzle.plies = 0; // how far into the drill line the board currently is
+  puzzle.gen = (puzzle.gen || 0) + 1; // invalidates queued auto-replies from the previous puzzle
   puzzle.revealed = false;
   puzzle.solved = false;
   // Leave any game-review mode: the board is a puzzle now, not a timeline.
@@ -2201,77 +2217,155 @@ function showPuzzle(i) {
   threatArrows = [];
   playedWasBest = false;
   paintPuzzleBoard();
+  puzzleStatusPrompt();
   renderPuzzlePanel();
 }
 
-// (Re)draw the current puzzle position with only the side-to-move movable — used on load and to
-// snap the board back after a wrong guess.
-function paintPuzzleBoard() {
+// (Re)build the board at the drill's current progress (p.fen + the line's first `puzzle.plies`
+// moves) with only the solver movable — used on load and to snap back after a wrong guess.
+function paintPuzzleBoard(shapes = []) {
   const p = puzzle.list[puzzle.idx];
   chess.load(p.fen);
+  for (const uci of puzzleLine(p).slice(0, puzzle.plies)) {
+    chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+  }
   orient = p.color;
   applyEvalBarTheme();
   setEvalBar(null);
+  const done = puzzle.solved || puzzle.revealed;
   ground.set({
-    fen: p.fen,
+    fen: chess.fen(),
     orientation: orient,
-    turnColor: p.color,
+    turnColor: turnColor(),
     check: chess.inCheck(),
-    movable: { color: puzzle.solved || puzzle.revealed ? undefined : p.color, dests: computeDests(), free: false, showDests: true },
+    movable: { color: done ? undefined : p.color, dests: done ? new Map() : computeDests(), free: false, showDests: true },
     lastMove: undefined,
   });
-  ground.setAutoShapes([]);
-  const toMove = p.color === "white" ? "White" : "Black";
+  ground.setAutoShapes(shapes);
   const opp = (p.color === "white" ? p.black : p.white) || "?";
   $("game-meta").textContent = `Puzzle ${puzzle.idx + 1} of ${puzzle.list.length} — from your game vs ${opp}`;
+}
+
+// The "your move" prompt line, with sequence progress when the drill is longer than one move.
+function puzzleStatusPrompt() {
+  const p = puzzle.list[puzzle.idx];
+  const line = puzzleLine(p);
+  const total = Math.ceil(line.length / 2); // solver moves in the drill
+  const num = Math.floor(puzzle.plies / 2) + 1;
+  const toMove = p.color === "white" ? "White" : "Black";
   const glyph = { blunder: "🔴", mistake: "🟠", inaccuracy: "🟡" }[p.classification] || "";
   $("status").className = "status";
-  $("status").innerHTML = `${glyph} <b>${toMove} to move</b> — find the move you missed.`;
+  if (puzzle.plies === 0) {
+    const seq = total > 1 ? (p.mate ? ` Mate in ${total} — play the whole sequence.` : ` ${total}-move sequence.`) : "";
+    $("status").innerHTML = `${glyph} <b>${toMove} to move</b> — find the move you missed.${seq}`;
+  } else {
+    $("status").innerHTML = `✅ Keep going — <b>move ${num} of ${total}</b>.`;
+  }
 }
 
 function onPuzzleMove(orig, dest) {
   const p = puzzle.list[puzzle.idx];
+  const line = puzzleLine(p);
+  const expected = line[puzzle.plies];
   const promo = isPromotion(orig, dest) ? "q" : undefined;
   const uci = orig + dest + (promo ?? "");
-  if (uci === p.solution_uci) {
-    chess.move({ from: orig, to: dest, promotion: promo });
-    puzzle.solved = true;
+  // Accept an orig/dest match even if the expected move underpromotes — the board defaults to a
+  // queen, and making the solver guess the promotion piece isn't the lesson here.
+  if (uci === expected || orig + dest === expected.slice(0, 4)) {
+    chess.move({ from: orig, to: dest, promotion: expected[4] || promo });
+    puzzle.plies += 1;
+    const firstMove = puzzle.plies === 1;
+    const shapes = [{ orig, dest, brush: "green" }];
+    // After the first correct move, contrast it with what you ACTUALLY played in the game (red).
+    if (firstMove && p.played_uci && p.played_uci !== expected) {
+      shapes.push(arrowShape(p.played_uci, "red"));
+    }
     ground.set({
       fen: chess.fen(),
       turnColor: turnColor(),
       check: chess.inCheck(),
       movable: { color: undefined, dests: new Map() },
     });
-    ground.setAutoShapes([{ orig, dest, brush: "green" }]);
-    const extra = puzzle.tries === 0 ? "first try!" : `after ${puzzle.tries + 1} tries.`;
-    $("status").innerHTML = `✅ <b>Correct</b> — ${escapeHtml(p.solution_san)}, ${extra}`;
-    renderPuzzlePanel();
+    ground.setAutoShapes(shapes);
+
+    if (puzzle.plies >= line.length) {
+      // Sequence complete.
+      puzzle.solved = true;
+      const extra = puzzle.tries === 0 ? "first try!" : `after ${puzzle.tries + 1} tries.`;
+      const what = line.length > 1 ? (p.mate ? "Checkmate!" : "Full sequence!") : escapeHtml(p.solution_san) + ",";
+      $("status").innerHTML = `✅ <b>Correct</b> — ${what} ${extra}` +
+        (firstMove && p.played_san ? ` <span class="muted">(red = your ${escapeHtml(p.played_san)} from the game)</span>` : "");
+      renderPuzzlePanel();
+      return;
+    }
+    // Auto-play the opponent's reply from the line, then hand the move back to the solver.
+    const gen = puzzle.gen;
+    $("status").innerHTML = `✅ <b>${escapeHtml(p.line_san ? p.line_san[puzzle.plies - 1] : "Correct")}</b>` +
+      (firstMove && p.played_san ? ` <span class="muted">(red = your ${escapeHtml(p.played_san)} from the game)</span>` : "");
+    setTimeout(() => {
+      if (!puzzle || puzzle.gen !== gen) return; // puzzle changed while we waited
+      const reply = line[puzzle.plies];
+      chess.move({ from: reply.slice(0, 2), to: reply.slice(2, 4), promotion: reply[4] });
+      puzzle.plies += 1;
+      ground.set({
+        fen: chess.fen(),
+        turnColor: turnColor(),
+        check: chess.inCheck(),
+        movable: { color: p.color, dests: computeDests(), free: false, showDests: true },
+        lastMove: [reply.slice(0, 2), reply.slice(2, 4)],
+      });
+      ground.setAutoShapes([]);
+      puzzleStatusPrompt();
+    }, 550);
     return;
   }
-  // Wrong: flash a red arrow on the attempt, snap the board back, and let them try again.
+  // Wrong: flash a red arrow on the attempt, snap the board back (keeping sequence progress),
+  // and let them try again.
   puzzle.tries += 1;
-  const wasPlayed = uci === p.played_uci ? " — that's the move you played in the game" : "";
+  const wasPlayed = uci === p.played_uci && puzzle.plies === 0 ? " — that's the move you played in the game" : "";
   $("status").innerHTML = `❌ Not the best${wasPlayed}. Try again${puzzle.tries >= 2 ? ", or Reveal." : "."}`;
-  paintPuzzleBoard();
-  ground.setAutoShapes([{ orig, dest, brush: "red" }]);
+  paintPuzzleBoard([{ orig, dest, brush: "red" }]);
   renderPuzzlePanel();
 }
 
+// Play out the remaining drill moves one by one, ending with green = the key move and red = the
+// move actually played in the game.
 function revealPuzzle() {
   if (!puzzle) return;
   const p = puzzle.list[puzzle.idx];
+  const line = puzzleLine(p);
   puzzle.revealed = true;
-  paintPuzzleBoard();
-  // Apply the solution so its arrow + resulting position show (chess.js wants from/to, not UCI).
-  const mv = chess.move({
-    from: p.solution_uci.slice(0, 2),
-    to: p.solution_uci.slice(2, 4),
-    promotion: p.solution_uci[4],
-  });
-  ground.set({ fen: chess.fen(), turnColor: turnColor(), check: chess.inCheck(), movable: { color: undefined, dests: new Map() } });
-  ground.setAutoShapes([{ orig: p.solution_uci.slice(0, 2), dest: p.solution_uci.slice(2, 4), brush: "green" }]);
-  $("status").innerHTML = `💡 Best was <b>${escapeHtml((mv && mv.san) || p.solution_san)}</b>.`;
-  renderPuzzlePanel();
+  const gen = puzzle.gen;
+  const step = () => {
+    if (!puzzle || puzzle.gen !== gen) return;
+    const uci = line[puzzle.plies];
+    chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+    puzzle.plies += 1;
+    ground.set({
+      fen: chess.fen(),
+      turnColor: turnColor(),
+      check: chess.inCheck(),
+      movable: { color: undefined, dests: new Map() },
+      lastMove: [uci.slice(0, 2), uci.slice(2, 4)],
+    });
+    if (puzzle.plies < line.length) {
+      setTimeout(step, 450);
+      return;
+    }
+    // Arrows must match the FINAL position: green on the last move played out; the red
+    // played-in-game arrow only when the board still sits one move in (its squares refer to the
+    // puzzle's start position).
+    const shapes = [arrowShape(line[line.length - 1], "green")];
+    if (line.length === 1 && p.played_uci && p.played_uci !== line[0]) {
+      shapes.push(arrowShape(p.played_uci, "red"));
+    }
+    ground.setAutoShapes(shapes);
+    const sans = (p.line_san || [p.solution_san]).join(" ");
+    $("status").innerHTML = `💡 Best was <b>${escapeHtml(sans)}</b>.` +
+      (p.played_san ? ` <span class="muted">(red = your ${escapeHtml(p.played_san)} from the game)</span>` : "");
+    renderPuzzlePanel();
+  };
+  step();
 }
 
 function nextPuzzle() {
@@ -2292,6 +2386,7 @@ function renderPuzzlePanel() {
   // The drill borrows the nav-buttons slot: game navigation is meaningless mid-puzzle, so the
   // Reveal/Next bar replaces it (and gives it back on exit) instead of stacking below the fold.
   $("game-controls").style.display = puzzle ? "none" : "";
+  updateFocusMode(); // drills also hide the (stale-game) side column
   if (!puzzle) {
     bar.hidden = true;
     return;
