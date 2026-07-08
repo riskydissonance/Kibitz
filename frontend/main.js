@@ -2187,6 +2187,12 @@ async function startPuzzles(motif) {
     $("history-status").textContent = "No puzzles for that theme yet.";
     return;
   }
+  // Present in random order (Fisher–Yates): the API returns hardest-first, so without this the
+  // drill always opens on the same position and the answers get memorised instead of learned.
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
   puzzle = { list, idx: 0, motif, tries: 0, revealed: false, solved: false };
   closeHistoryDrawer(); // get the panel out of the way of the board on small screens
   $("history-status").textContent = "";
