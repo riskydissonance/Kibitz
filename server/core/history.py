@@ -886,7 +886,18 @@ def insights(days: Optional[int] = None, data_dir: Optional[str] = None) -> dict
     agg = _aggregate(records)
     for m in agg.get("top_motifs", []):
         m["label"] = _MOTIF_LABELS.get(m["motif"], m["motif"])
-    return {"player_id": me, "days": days or 0, **agg}
+    # Per-game accuracy series (oldest→newest by played day) for the panel's trend chart.
+    # Only fields the chart needs; capped so a huge history can't bloat the payload.
+    trend = [
+        {
+            "date": _record_day(r)[:10],
+            "accuracy": r.get("accuracy"),
+            "result": r.get("player_result"),
+            "opening": r.get("opening") or r.get("eco"),
+        }
+        for r in sorted(records, key=_record_day)
+    ][-60:]
+    return {"player_id": me, "days": days or 0, "trend": trend, **agg}
 
 
 # --------------------------------------------------------------------------------------

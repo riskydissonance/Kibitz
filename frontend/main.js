@@ -784,6 +784,9 @@ function updateNav() {
 // --- chat ("why?") -------------------------------------------------------
 const escapeHtml = (s) =>
   s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+// For text interpolated into a double-quoted HTML attribute (title=, data-tip=…), where a stray
+// quote would end the attribute — escapeHtml alone doesn't cover that.
+const escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
 
 // Minimal, safe markdown → HTML: escape first, then bold / italic / code / lists / paragraphs.
 function renderMarkdown(text) {
@@ -1479,7 +1482,7 @@ function renderProgress(st) {
 function beginProvisional(pgn, side, metaText) {
   if (puzzle) {
     puzzle = null; // opening a game ends the drill; the board belongs to the review again
-    $("puzzle-controls").hidden = true;
+    renderPuzzlePanel();
   }
   analyzing = true;
   currentMistake = -1;
@@ -1839,6 +1842,85 @@ async function loadInsights() {
   renderInsights(data);
 }
 
+// One reusable tooltip for the insights charts: shown near the hovered mark, hidden on leave.
+// Marks opt in via data-tip; delegation keeps it one listener however often the pane re-renders.
+function wireChartTips(root) {
+  const tip = $("chart-tip");
+  if (!tip) return;
+  root.addEventListener("mousemove", (e) => {
+    const mark = e.target.closest("[data-tip]");
+    if (!mark) {
+      tip.hidden = true;
+      return;
+    }
+    tip.textContent = mark.dataset.tip;
+    tip.hidden = false;
+    const pane = $("insights").getBoundingClientRect();
+    tip.style.left = `${Math.min(e.clientX - pane.left + 12, pane.width - tip.offsetWidth - 8)}px`;
+    tip.style.top = `${e.clientY - pane.top - 34}px`;
+  });
+  root.addEventListener("mouseleave", () => {
+    tip.hidden = true;
+  });
+}
+
+// Accuracy-per-game line (SVG): one series in the accent hue, hairline gridlines, an end dot with
+// a surface ring, and an invisible per-point hover band feeding the shared tooltip.
+function accuracyTrendSvg(trend) {
+  const pts = trend.filter((t) => t.accuracy != null);
+  if (pts.length < 2) return "";
+  const W = 320;
+  const H = 96;
+  const PAD = { l: 30, r: 10, t: 8, b: 6 };
+  const lo = Math.max(0, Math.min(...pts.map((p) => p.accuracy), 60) - 5);
+  const x = (i) => PAD.l + (i * (W - PAD.l - PAD.r)) / (pts.length - 1);
+  const y = (a) => PAD.t + (100 - a) * ((H - PAD.t - PAD.b) / (100 - lo));
+  const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.accuracy).toFixed(1)}`).join(" ");
+  const grid = [100, Math.round((100 + lo) / 2), Math.round(lo)]
+    .map(
+      (v) =>
+        `<line x1="${PAD.l}" y1="${y(v)}" x2="${W - PAD.r}" y2="${y(v)}" class="grid"/>` +
+        `<text x="${PAD.l - 4}" y="${y(v) + 3}" class="tick">${v}</text>`
+    )
+    .join("");
+  const resultWordLc = { win: "won", loss: "lost", draw: "drew" };
+  const hovers = pts
+    .map((p, i) => {
+      const w = (W - PAD.l - PAD.r) / (pts.length - 1);
+      const label = `${p.date || ""} · ${p.accuracy}%` +
+        (p.result ? ` · ${resultWordLc[p.result] || p.result}` : "") +
+        (p.opening ? ` · ${p.opening}` : "");
+      return (
+        `<g data-tip="${escapeAttr(label)}">` +
+        `<rect x="${(x(i) - w / 2).toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${H}" fill="transparent"/>` +
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(p.accuracy).toFixed(1)}" r="3" class="pt"/>` +
+        `</g>`
+      );
+    })
+    .join("");
+  const last = pts[pts.length - 1];
+  return (
+    `<svg viewBox="0 0 ${W} ${H}" class="ins-chart" role="img" aria-label="Accuracy per game">` +
+    grid +
+    `<polyline points="${line}" class="trend"/>` +
+    hovers +
+    `<circle cx="${x(pts.length - 1)}" cy="${y(last.accuracy)}" r="4" class="end-dot"/>` +
+    `<text x="${W - PAD.r}" y="${Math.max(10, y(last.accuracy) - 7)}" class="end-label">${last.accuracy}%</text>` +
+    `</svg>`
+  );
+}
+
+// A labelled horizontal bar row (shared by the weakness + phase charts): name, thin accent bar
+// scaled to max, value at the bar end. Direct labels on every row, so color never carries alone.
+function barRow(label, value, max, valueText, extra = "") {
+  const pct = max > 0 ? Math.max(2, (value / max) * 100) : 0;
+  return (
+    `<div class="ins-bar-row" ${extra}><span class="ins-bar-label">${escapeHtml(label)}</span>` +
+    `<span class="ins-bar-track"><span class="ins-bar-fill" style="width:${pct.toFixed(1)}%"></span></span>` +
+    `<span class="ins-bar-val">${escapeHtml(String(valueText))}</span></div>`
+  );
+}
+
 function renderInsights(d) {
   const body = $("insights-body");
   if (!d || d.error) {
@@ -1846,69 +1928,164 @@ function renderInsights(d) {
     return;
   }
   if (!d.games) {
-    body.innerHTML = `<p class="muted">No analyzed games in this period yet.</p>`;
+    body.innerHTML = `<p class="muted">No analyzed games in this period yet — open one from the
+      Games tab (or ⟳ Sync) and it will start showing up here.</p>`;
     return;
   }
   const r = d.results || {};
   const mt = d.mistake_totals || {};
+  const mpg = d.mistakes_per_game || {};
   const parts = [];
+
+  // KPI row: the three headline numbers, each a stat tile (value + context line).
   parts.push(
-    `<div class="ins-stat"><b>${d.games}</b> game${d.games === 1 ? "" : "s"} · ` +
-      `${r.win || 0}W–${r.loss || 0}L–${r.draw || 0}D` +
-      (d.avg_accuracy != null ? ` · <b>${d.avg_accuracy}%</b> avg accuracy` : "") +
+    `<div class="ins-tiles">` +
+      `<div class="ins-tile"><div class="ins-tile-label">Games</div>` +
+      `<div class="ins-tile-value">${d.games}</div>` +
+      `<div class="ins-tile-sub">${r.win || 0}W · ${r.draw || 0}D · ${r.loss || 0}L</div></div>` +
+      `<div class="ins-tile"><div class="ins-tile-label">Avg accuracy</div>` +
+      `<div class="ins-tile-value">${d.avg_accuracy != null ? d.avg_accuracy + "%" : "—"}</div>` +
+      `<div class="ins-tile-sub">across the period</div></div>` +
+      `<div class="ins-tile"><div class="ins-tile-label">Blunders / game</div>` +
+      `<div class="ins-tile-value">${mpg.blunder != null ? mpg.blunder : "—"}</div>` +
+      `<div class="ins-tile-sub">${mt.blunder || 0} total</div></div>` +
       `</div>`
   );
-  parts.push(
-    `<div class="ins-stat muted">${mt.blunder || 0} blunders · ${mt.mistake || 0} mistakes · ` +
-      `${mt.inaccuracy || 0} inaccuracies</div>`
-  );
-  const motifs = (d.top_motifs || []).slice(0, 5);
-  if (motifs.length) {
+
+  // Accuracy trend: per-game line, oldest → newest.
+  const trendSvg = accuracyTrendSvg(d.trend || []);
+  if (trendSvg) parts.push(`<h3>Accuracy by game</h3>${trendSvg}`);
+
+  // Mistake severity: one stacked bar (2px surface gaps) + a fully-labelled legend line, so the
+  // yellow/orange/red never has to be told apart by hue alone.
+  const sevTotal = (mt.inaccuracy || 0) + (mt.mistake || 0) + (mt.blunder || 0);
+  if (sevTotal) {
+    const seg = (k, cls) =>
+      mt[k]
+        ? `<span class="sev-seg ${cls}" style="flex-grow:${mt[k]}" data-tip="${mt[k]} ${k === "inaccuracy" ? "inaccuracies" : k + "s"}"></span>`
+        : "";
     parts.push(
-      `<h3>Recurring themes</h3><ul class="ins-list">` +
-        motifs
-          .map(
-            (m) =>
-              `<li>${escapeHtml(m.label || m.motif)} <span class="muted">×${m.count}</span></li>`
-          )
-          .join("") +
-        `</ul>`
+      `<h3>Mistake severity</h3>` +
+        `<div class="sev-bar">${seg("inaccuracy", "inacc")}${seg("mistake", "mist")}${seg("blunder", "blun")}</div>` +
+        `<div class="sev-legend">` +
+        `<span><i class="sev-dot inacc"></i>${mt.inaccuracy || 0} inaccuracies</span>` +
+        `<span><i class="sev-dot mist"></i>${mt.mistake || 0} mistakes</span>` +
+        `<span><i class="sev-dot blun"></i>${mt.blunder || 0} blunders</span>` +
+        `</div>`
     );
   }
-  if (d.weakest_phase) {
-    parts.push(`<div class="ins-stat">Weakest phase: <b>${escapeHtml(d.weakest_phase)}</b></div>`);
+
+  // Recurring weaknesses: bars by count, each clickable → drills that motif in the Puzzles tab.
+  const motifs = (d.top_motifs || []).slice(0, 6);
+  if (motifs.length) {
+    const max = motifs[0].count;
+    parts.push(
+      `<h3>Recurring weaknesses <span class="ins-hint">click one to train it</span></h3>` +
+        `<div class="ins-bars">` +
+        motifs
+          .map((m) =>
+            barRow(m.label || m.motif, m.count, max, `×${m.count}`,
+              `data-motif="${escapeAttr(m.motif)}" role="button" tabindex="0" title="Train ${escapeAttr(m.label || m.motif)} in Puzzles"`)
+          )
+          .join("") +
+        `</div>`
+    );
   }
-  const ops = (d.openings || []).slice(0, 3);
+
+  // Where the win% leaks, by game phase — per game, because the raw window totals (hundreds of
+  // summed percentage points) mean nothing to a reader. The weakest phase is named, not colored.
+  const pl = d.phase_loss_total || {};
+  const perGame = (k) => (pl[k] || 0) / d.games;
+  const phases = ["opening", "middlegame", "endgame"].filter((k) => pl[k] != null);
+  const plMax = Math.max(...phases.map(perGame), 0);
+  if (plMax > 0) {
+    parts.push(
+      `<h3>Win% lost per game, by phase</h3><div class="ins-bars">` +
+        phases.map((k) => barRow(k, perGame(k), plMax, `${perGame(k).toFixed(1)}%`)).join("") +
+        `</div>` +
+        (d.weakest_phase
+          ? `<div class="ins-stat muted">Most of the damage happens in the <b>${escapeHtml(d.weakest_phase)}</b>.</div>`
+          : "")
+    );
+  }
+
+  // Openings + speeds: small tables (identity + two measures reads better as rows than bars).
+  const ops = (d.openings || []).slice(0, 5);
   if (ops.length) {
     parts.push(
-      `<h3>Most played openings</h3><ul class="ins-list">` +
+      `<h3>Most played openings</h3><table class="ins-table"><thead>` +
+        `<tr><th>Opening</th><th>Games</th><th>Acc</th></tr></thead><tbody>` +
         ops
           .map(
             (o) =>
-              `<li>${escapeHtml(o.opening)} <span class="muted">×${o.games}` +
-              (o.avg_accuracy != null ? ` · ${o.avg_accuracy}%` : "") +
-              `</span></li>`
+              `<tr><td>${escapeHtml(o.opening)}</td><td>${o.games}</td>` +
+              `<td>${o.avg_accuracy != null ? o.avg_accuracy + "%" : "—"}</td></tr>`
           )
           .join("") +
-        `</ul>`
+        `</tbody></table>`
     );
   }
+  const speeds = (d.by_speed || []).filter((s) => s.games > 0).slice(0, 4);
+  if (speeds.length > 1) {
+    parts.push(
+      `<h3>By time control</h3><table class="ins-table"><thead>` +
+        `<tr><th>Mode</th><th>Games</th><th>Acc</th><th>Blun/g</th></tr></thead><tbody>` +
+        speeds
+          .map(
+            (s) =>
+              `<tr><td>${escapeHtml(s.speed)}</td><td>${s.games}</td>` +
+              `<td>${s.avg_accuracy != null ? s.avg_accuracy + "%" : "—"}</td>` +
+              `<td>${s.blunders_per_game != null ? s.blunders_per_game : "—"}</td></tr>`
+          )
+          .join("") +
+        `</tbody></table>`
+    );
+  }
+
   body.innerHTML = parts.join("");
+  // Weakness bars drill straight into the puzzle trainer for that motif.
+  body.querySelectorAll("[data-motif]").forEach((el) => {
+    const go = () => {
+      setMode("puzzles");
+      startPuzzles(el.dataset.motif);
+    };
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        go();
+      }
+    });
+  });
+  if (!body.dataset.tipsWired) {
+    body.dataset.tipsWired = "1";
+    wireChartTips(body);
+  }
 }
 
-// Just the tab chrome (active button + which form/list is shown), no data fetch.
+// Just the tab chrome (active buttons + which pane is shown), no data fetch. Two levels: the top
+// row picks the section (Games / Puzzles / Insights); the sub-row (Games only) picks the source.
+let lastGamesMode = "normal"; // which Games source to return to when re-entering the Games tab
+
 function activateTab(mode) {
   historyMode = mode;
-  for (const m of ["normal", "lichess", "chesscom", "paste", "puzzles"]) {
+  const inGames = !["puzzles", "insights"].includes(mode);
+  if (inGames) lastGamesMode = mode;
+  $("top-games").classList.toggle("active", inGames);
+  $("mode-puzzles").classList.toggle("active", mode === "puzzles");
+  $("mode-insights").classList.toggle("active", mode === "insights");
+  $("hist-title").textContent = inGames ? "Games" : mode === "puzzles" ? "Puzzles" : "Insights";
+  $("games-sources").style.display = inGames ? "flex" : "none";
+  for (const m of ["normal", "lichess", "chesscom", "paste"]) {
     $(`mode-${m}`).classList.toggle("active", mode === m);
   }
   $("lichess-form").style.display = mode === "lichess" ? "flex" : "none";
   $("chesscom-form").style.display = mode === "chesscom" ? "flex" : "none";
   $("paste-form").style.display = mode === "paste" ? "flex" : "none";
   $("puzzles-panel").style.display = mode === "puzzles" ? "block" : "none";
-  // The Puzzles tab has its own list (theme chips), so hide the games list + insights there.
-  $("history-list").style.display = mode === "paste" || mode === "puzzles" ? "none" : "";
-  $("insights").style.display = mode === "puzzles" ? "none" : "";
+  $("insights").style.display = mode === "insights" ? "block" : "none";
+  $("history-list").style.display = inGames && mode !== "paste" ? "" : "none";
+  $("history-status").style.display = mode === "insights" ? "none" : "";
 }
 
 // Update the "Set as my account" button to reflect whether `who` (lowercased) is already you.
@@ -1926,6 +2103,7 @@ function reflectSetAsMe(who) {
 // from your recurring weaknesses (same motifs the Insights panel names), and the whole set can be
 // exported to a Lichess study of practice chapters.
 let puzzleDays = 0; // time window for themes + puzzles (0 = all history)
+let puzzleKinds = ""; // severity filter: "" (all) | "mistake,blunder" | "blunder"
 
 async function loadPuzzleThemes() {
   const wrap = $("puzzle-themes");
@@ -1934,7 +2112,8 @@ async function loadPuzzleThemes() {
   wrap.innerHTML = `<span class="muted">Loading your weaknesses…</span>`;
   let data;
   try {
-    data = await fetch(`/api/puzzles/themes?days=${puzzleDays}`).then((r) => r.json());
+    const q = new URLSearchParams({ days: String(puzzleDays), kinds: puzzleKinds });
+    data = await fetch("/api/puzzles/themes?" + q.toString()).then((r) => r.json());
   } catch (_) {
     wrap.innerHTML = `<span class="muted">Couldn't load puzzles.</span>`;
     return;
@@ -1964,7 +2143,7 @@ async function loadPuzzleThemes() {
 
 async function startPuzzles(motif) {
   $("history-status").textContent = "Loading puzzles…";
-  const q = new URLSearchParams({ days: String(puzzleDays), limit: "60" });
+  const q = new URLSearchParams({ days: String(puzzleDays), limit: "60", kinds: puzzleKinds });
   if (motif) q.set("motif", motif);
   let data;
   try {
@@ -2088,6 +2267,9 @@ function nextPuzzle() {
 function renderPuzzlePanel() {
   const bar = $("puzzle-controls");
   if (!bar) return;
+  // The drill borrows the nav-buttons slot: game navigation is meaningless mid-puzzle, so the
+  // Reveal/Next bar replaces it (and gives it back on exit) instead of stacking below the fold.
+  $("game-controls").style.display = puzzle ? "none" : "";
   if (!puzzle) {
     bar.hidden = true;
     return;
@@ -2110,7 +2292,7 @@ function renderPuzzlePanel() {
 
 function exitPuzzleMode() {
   puzzle = null;
-  $("puzzle-controls").hidden = true;
+  renderPuzzlePanel(); // hides the drill bar and gives the nav buttons their slot back
   // Restore whatever game was on the board before (if any), else a neutral message.
   if (timeline.length) {
     gotoNode(clamp(cur, 0, timeline.length - 1));
@@ -2135,7 +2317,7 @@ async function exportPuzzlesToStudy() {
     res = await fetch("/api/puzzles/lichess-study", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ motif, days: puzzleDays, limit: 60 }),
+      body: JSON.stringify({ motif, kinds: puzzleKinds, days: puzzleDays, limit: 60 }),
     }).then((r) => r.json());
   } catch (_) {
     res = { error: "Couldn't reach the server." };
@@ -2387,6 +2569,8 @@ function setMode(mode) {
   } else if (mode === "puzzles") {
     $("history-status").textContent = "";
     loadPuzzleThemes();
+  } else if (mode === "insights") {
+    loadInsights();
   } else {
     // paste: nothing to fetch; just a hint until they submit.
     updatePasteHint();
@@ -2500,7 +2684,9 @@ function initPgnDrop() {
 
 // Below this width the Games panel is an off-canvas drawer (see styles.css) rather than a third
 // column, so it must start closed and auto-close when a game is opened to reveal the board.
-const HISTORY_DRAWER_MAX = 1400;
+// Both values mirror styles.css (.history-col width + the drawer media query) — keep in sync.
+const HISTORY_DRAWER_MAX = 1520;
+const HISTORY_COL_W = 360;
 function historyIsDrawer() {
   return window.innerWidth <= HISTORY_DRAWER_MAX;
 }
@@ -2512,9 +2698,9 @@ function toggleHistory() {
   document.body.classList.toggle("history-hidden");
 }
 
-// Keep the drawer state sane when the window crosses the 1400px breakpoint. Without this, the
+// Keep the drawer state sane when the window crosses the drawer breakpoint. Without this, the
 // `history-hidden` class is whatever it was last set to (e.g. never set, if the page loaded wide),
-// so shrinking below 1400 can leave the panel stuck open as a fixed drawer overlaying the board —
+// so shrinking below it can leave the panel stuck open as a fixed drawer overlaying the board —
 // and the open drawer covers the ☰ Games button, so toggling it looks like nothing happens.
 // Entering drawer mode → start closed (☰ Games opens it); back to wide → show the column.
 let wasDrawer = historyIsDrawer();
@@ -2541,7 +2727,7 @@ function boardSizeBounds() {
   const GAP = 24; // main's column gap
   const SIDE_MIN = 280; // keep the analysis column usable
   const EVALBAR = 28; // eval bar + its gap (col-width = board-size + 28)
-  const historyCol = vw > HISTORY_DRAWER_MAX ? 280 + GAP : 0; // a column above 1400, else a drawer
+  const historyCol = vw > HISTORY_DRAWER_MAX ? HISTORY_COL_W + GAP : 0; // a column when wide, else a drawer
   const maxByWidth = vw - PAD - GAP - SIDE_MIN - historyCol - EVALBAR;
   const maxByHeight = Math.round(vh * 0.92);
   const min = 240;
@@ -2690,14 +2876,20 @@ function init() {
   // Games panel: collapse toggle, mode slider, lichess lookup.
   $("history-toggle").addEventListener("click", toggleHistory);
   $("history-collapse").addEventListener("click", toggleHistory);
+  $("top-games").addEventListener("click", () => setMode(lastGamesMode));
   $("mode-normal").addEventListener("click", () => setMode("normal"));
   $("mode-lichess").addEventListener("click", () => setMode("lichess"));
   $("mode-chesscom").addEventListener("click", () => setMode("chesscom"));
   $("mode-paste").addEventListener("click", () => setMode("paste"));
   $("mode-puzzles").addEventListener("click", () => setMode("puzzles"));
-  // Puzzle trainer: time window + Lichess-study export live in the Puzzles tab panel.
+  $("mode-insights").addEventListener("click", () => setMode("insights"));
+  // Puzzle trainer: severity + time-window filters and the Lichess-study export.
   $("puzzle-days").addEventListener("change", (e) => {
     puzzleDays = Number(e.target.value) || 0;
+    loadPuzzleThemes();
+  });
+  $("puzzle-kinds").addEventListener("change", (e) => {
+    puzzleKinds = e.target.value || "";
     loadPuzzleThemes();
   });
   $("puzzle-export").addEventListener("click", exportPuzzlesToStudy);

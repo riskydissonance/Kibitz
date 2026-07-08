@@ -72,7 +72,7 @@
           </div>
         </div>
 
-        <div class="controls">
+        <div class="controls" id="game-controls">
           <div class="ctrl-group">
             <button id="back" title="Back one move (←)">◀ Back</button>
             <button id="fwd" title="Forward one move (→ or Space)">Forward ▶</button>
@@ -92,9 +92,10 @@
             title="Re-analyse this same game from the other player's perspective (in case the wrong side was picked)">↺ Review other side</button>
         </div>
 
-        <div id="status" class="status"></div>
-        <!-- Puzzle-mode controls (hidden outside the trainer): Reveal / Next / Exit. -->
+        <!-- Puzzle-mode controls (Reveal / Next / Exit): swapped in for #game-controls while a
+             drill is active, so they sit in the same spot the nav buttons normally occupy. -->
         <div id="puzzle-controls" class="controls puzzle-controls" hidden></div>
+        <div id="status" class="status"></div>
       </section>
 
       <!-- iPad-split-view-style drag handle: drag left/right to resize the board (and reflow the
@@ -144,15 +145,22 @@
 
       <aside class="history-col" id="history-col">
         <div class="hist-head">
-          <h2>Games</h2>
+          <h2 id="hist-title">Games</h2>
           <button id="history-collapse" class="hist-x" title="Hide panel" aria-label="Hide panel">×</button>
         </div>
-        <div class="seg" role="tablist">
+        <!-- Two-level navigation: the top row picks the section (Games / Puzzles / Insights); the
+             sub-row (Games only) picks the game source. Keeps five-plus destinations reachable in
+             a ~360px column without the old single row overflowing. -->
+        <div class="seg seg-top" role="tablist">
+          <button id="top-games" class="active" type="button">♟ Games</button>
+          <button id="mode-puzzles" type="button">🧩 Puzzles</button>
+          <button id="mode-insights" type="button">📈 Insights</button>
+        </div>
+        <div class="seg seg-sub" id="games-sources" role="tablist">
           <button id="mode-normal" class="active" type="button">My games</button>
           <button id="mode-lichess" type="button">Lichess</button>
           <button id="mode-chesscom" type="button">Chess.com</button>
-          <button id="mode-paste" type="button">Paste PGN</button>
-          <button id="mode-puzzles" type="button">Puzzles</button>
+          <button id="mode-paste" type="button">Paste</button>
         </div>
 
         <!-- Puzzle trainer: drills built from YOUR analyzed mistakes (no new engine work). Pick a
@@ -160,17 +168,28 @@
         <div id="puzzles-panel" class="puzzles-panel" style="display:none">
           <div class="puzzles-head">
             <span class="muted">Train the mistakes from your own games.</span>
-            <select id="puzzle-days" title="Which games to build puzzles from"
-              aria-label="Puzzle time period">
-              <option value="0" selected>All time</option>
-              <option value="30">Last 30 days</option>
-              <option value="7">Last 7 days</option>
-            </select>
+            <div class="puzzles-filters">
+              <select id="puzzle-kinds" title="Which mistakes become puzzles"
+                aria-label="Puzzle severity filter">
+                <option value="" selected>All severities</option>
+                <option value="mistake,blunder">Mistakes + blunders</option>
+                <option value="blunder">Blunders only</option>
+              </select>
+              <select id="puzzle-days" title="Which games to build puzzles from"
+                aria-label="Puzzle time period">
+                <option value="0" selected>All time</option>
+                <option value="30">Last 30 days</option>
+                <option value="7">Last 7 days</option>
+              </select>
+            </div>
           </div>
           <div id="puzzle-themes" class="puzzle-themes"></div>
           <div class="puzzles-export">
+            <h3>Lichess study</h3>
+            <p class="muted">Turn this puzzle set into a private study of interactive practice
+              chapters on Lichess — one chapter per mistake, solution to find, your move annotated.</p>
             <button type="button" id="puzzle-export"
-              title="Create a private Lichess study from these puzzles — one interactive practice chapter per mistake. Needs a Lichess token with the study:write permission (⚙ Settings).">
+              title="Needs a Lichess token with the study:write permission (⚙ Settings).">
               ▲ Send to Lichess study
             </button>
             <div id="puzzle-export-status" class="muted"></div>
@@ -217,11 +236,12 @@
         <div id="history-status" class="hist-status"></div>
         <ol id="history-list" class="history"></ol>
 
-        <!-- Cross-game insights: recurring themes + stats aggregated from every analyzed game in
-             the chosen time window (GET /api/insights). Refreshes as new games are analyzed. -->
-        <section id="insights" class="insights">
+        <!-- Cross-game insights (own tab): stat tiles + accuracy trend + weakness/phase charts,
+             aggregated from every analyzed game in the chosen window (GET /api/insights).
+             Refreshes as new games are analyzed. -->
+        <section id="insights" class="insights" style="display:none">
           <div class="insights-head">
-            <h2>Insights</h2>
+            <span class="muted">Patterns across your analyzed games.</span>
             <select id="insights-period" title="Time period" aria-label="Insights time period">
               <option value="1">Today</option>
               <option value="7">Last 7 days</option>
@@ -230,6 +250,7 @@
             </select>
           </div>
           <div id="insights-body" class="insights-body"></div>
+          <div id="chart-tip" class="chart-tip" hidden></div>
         </section>
       </aside>
     </main>

@@ -227,10 +227,10 @@ def get_puzzles(motif: str = "", kinds: str = "", days: int = 0, limit: int = 0)
 
 
 @router.get("/puzzles/themes")
-def get_puzzle_themes(days: int = 0) -> dict:
+def get_puzzle_themes(days: int = 0, kinds: str = "") -> dict:
     """Per-motif puzzle counts (labelled) for the "train your weaknesses" chips."""
     try:
-        return {"themes": puzzles.themes(days=days or None)}
+        return {"themes": puzzles.themes(days=days or None, kinds=_parse_kinds(kinds))}
     except Exception as exc:  # pragma: no cover - defensive
         return {"themes": [], "error": str(exc)}
 

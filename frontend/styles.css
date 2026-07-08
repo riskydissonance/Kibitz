@@ -688,7 +688,8 @@ main {
 }
 .hist-toggle:hover { background: var(--panel2); }
 
-.history-col { flex: 0 0 auto; width: 280px; }
+/* Width mirrored in main.js (HISTORY_COL_W) — keep in sync. */
+.history-col { flex: 0 0 auto; width: 360px; }
 body.history-hidden .history-col { display: none; }
 /* Highlight the whole Games panel while a .pgn file is dragged over it (drop to analyze). */
 .history-col.drag-over {
@@ -708,6 +709,11 @@ body.history-hidden .history-col { display: none; }
 
 /* segmented My games | Lichess control */
 .seg { display: flex; gap: 0; margin-bottom: 10px; border: 1px solid #000; border-radius: 6px; overflow: hidden; }
+/* Two-level navigation: the top row picks the section, the sub-row (Games only) the source. */
+.seg-top { margin-bottom: 6px; }
+.seg-top button { font-size: 13.5px; padding: 7px 4px; }
+.seg-sub button { font-size: 12px; padding: 5px 3px; }
+.seg-sub button.active { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
 .seg button {
   flex: 1; background: var(--panel); color: var(--muted); border: none;
   padding: 6px 10px; cursor: pointer; font-size: 13px;
@@ -859,34 +865,86 @@ body.history-hidden .history-col { display: none; }
 .history li.load-more:hover { background: var(--panel); }
 
 /* --- Insights panel (cross-game themes + stats over a chosen time period) ------------------ */
-.insights { margin-top: 14px; border-top: 1px solid #000; padding-top: 10px; }
-.insights-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.insights-head h2 { font-size: 15px; margin: 0; }
-.insights-head select {
+/* Insights is its own tab pane now; position:relative anchors the shared chart tooltip. */
+.insights { position: relative; }
+.insights-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.insights-head select,
+.puzzles-head select {
   background: var(--panel2); color: var(--text); border: 1px solid #000; border-radius: 5px;
   font-size: 12.5px; padding: 3px 6px;
 }
 .insights-body { font-size: 13px; }
 .insights-body h3 {
-  font-size: 12.5px; margin: 10px 0 4px; color: var(--muted);
+  font-size: 12.5px; margin: 14px 0 5px; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.4px;
 }
-.insights-body .ins-stat { margin: 3px 0; }
-.insights-body .ins-list { list-style: none; margin: 0; padding: 0; }
-.insights-body .ins-list li {
-  background: var(--panel); border-radius: 5px; padding: 5px 8px; margin-bottom: 4px;
-  display: flex; justify-content: space-between; gap: 8px;
+.insights-body .ins-stat { margin: 4px 0; font-size: 12.5px; }
+.ins-hint { text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: normal; }
+
+/* KPI row: three stat tiles. */
+.ins-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ins-tile { background: var(--panel2); border-radius: 6px; padding: 8px 9px; }
+.ins-tile-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.ins-tile-value { font-size: 20px; font-weight: 600; line-height: 1.15; }
+.ins-tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Accuracy trend (inline SVG): hairline grid, 2px accent line, surface-ringed end dot. */
+.ins-chart { width: 100%; height: auto; display: block; }
+.ins-chart .grid { stroke: #37342f; stroke-width: 1; }
+.ins-chart .tick { fill: var(--muted); font-size: 9px; text-anchor: end; }
+.ins-chart .trend { stroke: var(--accent); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.ins-chart .pt { fill: transparent; }
+.ins-chart g:hover .pt { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.ins-chart .end-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.ins-chart .end-label { fill: var(--text); font-size: 10px; text-anchor: end; }
+
+/* Mistake severity: stacked bar with 2px surface gaps + a fully-labelled legend (the colors
+   also appear on the board UI, but hue never has to carry alone here). */
+.sev-bar { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; }
+.sev-seg { display: block; min-width: 3px; }
+.sev-seg.inacc, .sev-dot.inacc { background: var(--inaccuracy); }
+.sev-seg.mist, .sev-dot.mist { background: var(--mistake); }
+.sev-seg.blun, .sev-dot.blun { background: var(--blunder); }
+.sev-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
+.sev-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+/* Labelled horizontal bars (weaknesses, phase loss): name · thin bar · value at the end. */
+.ins-bars { display: flex; flex-direction: column; gap: 3px; }
+.ins-bar-row { display: flex; align-items: center; gap: 7px; padding: 2px 3px; border-radius: 5px; }
+.ins-bar-row[data-motif] { cursor: pointer; }
+.ins-bar-row[data-motif]:hover, .ins-bar-row[data-motif]:focus-visible { background: var(--panel2); outline: none; }
+.ins-bar-label { flex: 0 0 128px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ins-bar-track { flex: 1; height: 10px; background: var(--panel2); border-radius: 0 4px 4px 0; }
+.ins-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; }
+.ins-bar-val { flex: 0 0 36px; text-align: right; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Openings / time-control tables. */
+.ins-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ins-table th { text-align: left; color: var(--muted); font-weight: normal; font-size: 11px; padding: 2px 4px; }
+.ins-table td { padding: 3px 4px; border-top: 1px solid #33302c; }
+.ins-table th:nth-child(n + 2), .ins-table td:nth-child(n + 2) {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ins-table td:first-child { max-width: 0; width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Shared chart tooltip (positioned by wireChartTips). */
+.chart-tip {
+  position: absolute; z-index: 5; pointer-events: none; max-width: 250px;
+  background: #141311; border: 1px solid #000; border-radius: 5px;
+  color: var(--text); font-size: 11.5px; padding: 4px 7px;
 }
 
 /* --- puzzle trainer -------------------------------------------------------------------------
    The Puzzles tab in the Games panel: weakness chips (one per recurring motif) + the Lichess
    study export; plus the Reveal/Next control bar that appears under the board while drilling. */
 .puzzles-panel { margin-bottom: 10px; font-size: 13px; }
-.puzzles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.puzzles-head select {
-  background: var(--panel2); color: var(--text); border: 1px solid #000; border-radius: 5px;
-  font-size: 12.5px; padding: 3px 6px;
+.puzzles-head { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.puzzles-filters { display: flex; gap: 6px; }
+.puzzles-export h3 {
+  font-size: 12.5px; margin: 10px 0 4px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.4px;
 }
+.puzzles-export p { margin: 0 0 8px; font-size: 12px; }
 .puzzle-themes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .puzzle-chip {
   background: var(--panel2); color: var(--text); border: 1px solid #000; border-radius: 14px;
@@ -905,17 +963,18 @@ body.history-hidden .history-col { display: none; }
 .puzzle-controls .pz-context { font-size: 12.5px; color: var(--muted); }
 
 /* --- responsive: smaller laptops / windows -------------------------------------------------
-   The third (Games) column needs ~1400px to sit beside the board + analysis columns. Below that
-   it becomes an off-canvas drawer that slides in from the right (toggled by ☰ Games / closed by ×
-   or by opening a game), so it's always reachable instead of being pushed off-screen. */
-@media (max-width: 1400px) {
+   The third (Games) column needs ~1520px to sit beside the board + analysis columns (breakpoint
+   mirrored in main.js HISTORY_DRAWER_MAX — keep in sync). Below that it becomes an off-canvas
+   drawer that slides in from the right (toggled by ☰ Games / closed by × or by opening a game),
+   so it's always reachable instead of being pushed off-screen. */
+@media (max-width: 1520px) {
   header { flex-wrap: wrap; row-gap: 6px; }
   .history-col {
     position: fixed;
     top: 0;
     right: 0;
     z-index: 95;
-    width: min(340px, 88vw);
+    width: min(400px, 92vw);
     height: 100vh;
     height: 100dvh;
     margin: 0;

@@ -123,3 +123,19 @@ def test_opening_accuracy_ignores_games_without_accuracy(data_dir):
     (petrov,) = history.insights(None, data_dir)["openings"]
     assert petrov["games"] == 2
     assert petrov["avg_accuracy"] == 80.0
+
+
+def test_insights_trend_is_chronological_and_capped(data_dir):
+    # Oldest→newest by played day, one entry per game, with the fields the trend chart reads.
+    _write(
+        [
+            _rec("g1", _day(3), accuracy=70.0),
+            _rec("g2", _day(1), accuracy=90.0),
+            _rec("g3", _day(2), accuracy=80.0, result="loss"),
+        ],
+        data_dir,
+    )
+    out = history.insights(None, data_dir)
+    assert [t["accuracy"] for t in out["trend"]] == [70.0, 80.0, 90.0]
+    assert out["trend"][1]["result"] == "loss"
+    assert set(out["trend"][0]) == {"date", "accuracy", "result", "opening"}

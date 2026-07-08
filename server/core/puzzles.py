@@ -120,15 +120,23 @@ def build_puzzles(
     return puzzles
 
 
-def themes(days: Optional[int] = None, data_dir: Optional[str] = None) -> list[dict]:
+def themes(
+    days: Optional[int] = None,
+    kinds: Optional[list[str]] = None,
+    data_dir: Optional[str] = None,
+) -> list[dict]:
     """Per-motif puzzle counts (labelled), most common first — the "your weaknesses" chips.
 
-    Only counts motifs that actually yield a solvable puzzle, so a chip's count matches how many
-    puzzles `build_puzzles(motif=...)` will return.
+    Only counts motifs that actually yield a solvable puzzle, and honours the same `kinds`
+    severity filter as `build_puzzles`, so a chip's count always matches how many puzzles
+    `build_puzzles(motif=..., kinds=...)` will return.
     """
+    kept = set(kinds) if kinds else None
     counts: dict[str, int] = {}
     for rec in history.my_records(days, data_dir):
         for m in rec.get("mistakes", []):
+            if kept is not None and m.get("classification") not in kept:
+                continue
             if _puzzle_from_mistake(rec, m) is None:
                 continue
             for motif in m.get("motifs") or []:
