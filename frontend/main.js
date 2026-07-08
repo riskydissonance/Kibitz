@@ -89,6 +89,10 @@ let puzzle = null;
 let appMode = false;
 let appUsername = "";
 let chesscomUsername = "";
+// Auto-sync the configured chess.com user's newest games on launch (a Settings option, default
+// on). The server gates it too (POST /sync/chesscom body.auto honours the setting); this flag
+// just skips the pointless call client-side when it's off.
+let chesscomSync = true;
 // On-demand Claude-written end-of-game summary: generated when the user presses the button, or
 // automatically per game when `coachAiAuto` is on (a Settings option). `coachAiToken` invalidates
 // an in-flight request when a new game is opened so a stale summary never lands on the wrong game.
@@ -142,18 +146,32 @@ function renderBoard() {
 function arrowShape(uci, brush) {
   return { orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush };
 }
-// The board shows the position AFTER the selected move, so the move just completed on the board
-// is the one stored at timeline[cur - 1] (null at the starting position). Every "which move is
-// this?" site goes through here so the convention lives in one place.
-function completedNode() {
-  return cur > 0 ? timeline[cur - 1] || null : null;
+// True when we're parked on a selected mistake's anchor: the position BEFORE your move, with you
+// to move — so the best-move arrows and anything you try are for YOUR side. Free browsing sits
+// AFTER the last move instead (upstream fix, ported).
+function atMistakeAnchor() {
+  return currentMistake >= 0 && cur === anchorNode;
+}
+// The timeline index of the move "under review" at the cursor: at a mistake anchor it's this
+// node's own OUTGOING move (you're before it, about to play); while browsing it's the move that
+// just landed us here (cur - 1). -1 at the very start (no move to show).
+function reviewedMoveNode() {
+  return atMistakeAnchor() ? cur : cur - 1;
+}
+// That move's timeline node (or null). Every "which move is this?" site goes through here so the
+// convention lives in one place. Note its `fen` is the position the move was played FROM.
+function reviewedNode() {
+  const i = reviewedMoveNode();
+  return i >= 0 ? timeline[i] || null : null;
 }
 function drawArrows() {
   const shapes = [];
-  // The move just completed on the board, as a dark arrow — "here's what was played", not a
-  // judgement. Suppressed when the engine confirmed it WAS the best move: then the single green
-  // best-move arrow sits on the same squares and green alone says "played + best" at a glance.
-  const done = completedNode();
+  // The move under review, as a dark arrow — "here's what was played", not a judgement. At a
+  // mistake anchor that's this node's OUTGOING move (the board sits BEFORE it, so the green
+  // best-move arrow is for your side and grey-vs-green reads as played-vs-better); while browsing
+  // it's the move that just completed. Suppressed when the engine confirmed it WAS the best move:
+  // then the single green arrow on the same squares says "played + best" at a glance.
+  const done = reviewedNode();
   if (!exploring && !analyzing && done && done.move_uci && !(bestArrowOn && playedWasBest)) {
     shapes.push(arrowShape(done.move_uci, "grey"));
   }
@@ -202,11 +220,12 @@ function refreshBestMoves() {
   playedWasBest = false;
   drawArrows();
   const myGen = searchGen;
-  // Best-move arrows grade the move just completed on the board, so they search the position it
-  // was played FROM ("what should have been played"), not the current position (which would give
-  // the best REPLY). At the start position, or while exploring your own lines, there's no
-  // completed timeline move — then they show the best move to play now.
-  const done = !exploring ? completedNode() : null;
+  // Best-move arrows grade the move under review, so they search the position it was played FROM
+  // ("what should have been played"). At a mistake anchor that IS the current position (the board
+  // sits before your move); while browsing it's the previous node's fen. At the start position,
+  // or while exploring your own lines, there's no reviewed move — then they show the best move to
+  // play now.
+  const done = !exploring ? reviewedNode() : null;
   if (bestArrowOn) {
     deepenBestMoves(done && done.fen ? done.fen : chess.fen(), myGen, done ? done.move_uci : null);
   }
@@ -347,7 +366,7 @@ function updateStatus() {
     $("ret").onclick = returnToReview;
   } else {
     el.className = "status";
-    const done = completedNode(); // grade the move just completed on the board
+    const done = reviewedNode(); // grade the move under review (see reviewedMoveNode)
     const g = done ? classGlyph(done.classification) : "";
     el.innerHTML = g + escapeHtml(currentPrompt || nodeLabel(cur));
   }
@@ -358,9 +377,9 @@ function gotoNode(n) {
   exploring = false;
   cur = clamp(n, 0, timeline.length - 1);
   evalShapes = [];
-  // chat context: the move just completed on the board is the move in question — chatFen is
-  // the position it was played from.
-  const done = completedNode();
+  // chat context: the move under review is the move in question (the mistake's own move at an
+  // anchor, else the move that just landed us here) — chatFen is where it was played from.
+  const done = reviewedNode();
   if (done && done.move_san) {
     chatFen = done.fen;
     chatMove = done.move_san;
@@ -656,9 +675,11 @@ async function selectMistake(i) {
   if (myGen !== chatGen) return; // a different game opened while we were fetching
   currentMistake = i;
   currentPrompt = pos.error ? "" : pos.prompt;
-  // Land on the position AFTER the mistake move, so the selected move has just completed on
-  // the board (step back once to try alternatives from before it).
-  anchorNode = Math.min(mistakes[i].node_index + 1, timeline.length - 1);
+  // Land on the position BEFORE the mistake (you're on the move) so the engine's best-move arrow
+  // and any move you try are for YOUR side; the grey arrow still shows the move you actually
+  // played (upstream fix — previously the board sat after the move, so trying an alternative
+  // moved the opponent's pieces).
+  anchorNode = mistakes[i].node_index;
   [...$("mistakes").children].forEach((li) =>
     li.classList.toggle("active", Number(li.dataset.index) === i)
   );
@@ -756,8 +777,8 @@ function highlightCurrentMove() {
   if (!ol) return;
   let active = null;
   ol.querySelectorAll(".ply[data-node]").forEach((el) => {
-    // completedNode()'s convention: the move on the board is the one at index cur - 1.
-    const on = Number(el.dataset.node) === cur - 1;
+    // Highlight the move under review: the mistake's own move at an anchor, else the last move.
+    const on = Number(el.dataset.node) === reviewedMoveNode();
     el.classList.toggle("active", on);
     if (on) active = el;
   });
@@ -1027,6 +1048,7 @@ async function loadAll() {
     appMode = !!cfg.app_mode;
     appUsername = (cfg.lichess_username || "").trim();
     chesscomUsername = (cfg.chesscom_username || "").trim();
+    chesscomSync = cfg.chesscom_sync !== false; // default on
     coachAiAuto = !!cfg.coach_ai_auto;
     personalizeHistory = cfg.personalize_history !== false; // default on
   } catch (_) {}
@@ -1266,7 +1288,7 @@ function startHeartbeat() {
 // first of them while the rest analyze); else auto-load the configured user's latest game
 // (Lichess, then chess.com); otherwise prompt for a username.
 async function maybeAutoload() {
-  if (await syncChesscom(true)) return true;
+  if (chesscomSync && (await syncChesscom(true))) return true;
   if (appUsername) await autoOpenLatest(appUsername);
   else if (chesscomUsername) await autoOpenLatestChesscom(chesscomUsername);
   else showFirstRun("");
@@ -2413,6 +2435,11 @@ function eloTier(elo) {
   return label;
 }
 
+// Show/hide the "how many recent games to check" field to match the auto-sync checkbox.
+function updateChesscomSyncUI() {
+  $("chesscom-sync-max-field").hidden = !$("set-chesscom-sync").checked;
+}
+
 // Show/hide the slider to match the checkbox and refresh the readout.
 function updateSkillUI() {
   const auto = $("set-skill-auto").checked;
@@ -2436,6 +2463,9 @@ async function openSettings() {
   const s = data.settings || {};
   $("set-username").value = s.username || "";
   $("set-chesscom").value = s.chesscom_username || "";
+  $("set-chesscom-sync").checked = s.chesscom_sync !== false; // auto-sync new games (default on)
+  $("set-chesscom-sync-max").value = s.chesscom_sync_max || "5";
+  updateChesscomSyncUI();
   $("set-aliases").value = s.aliases || "";
   $("set-token").value = s.lichess_token || "";
   // Coaching memory: load the raw windows into the Advanced fields, then point the
@@ -2510,6 +2540,8 @@ async function saveSettings(e) {
   const patch = {
     username: $("set-username").value.trim(),
     chesscom_username: $("set-chesscom").value.trim(),
+    chesscom_sync: $("set-chesscom-sync").checked,
+    chesscom_sync_max: $("set-chesscom-sync-max").value.trim(),
     aliases: $("set-aliases").value.trim(),
     lichess_token: $("set-token").value.trim(),
     stockfish_path: $("set-stockfish").value.trim(),
@@ -2547,6 +2579,7 @@ async function saveSettings(e) {
   // only act when nothing's there yet (turn-on -> generate now; turn-off -> offer the button).
   coachAiAuto = !!(res.settings && res.settings.coach_ai_auto);
   personalizeHistory = !(res.settings && res.settings.personalize_history === false);
+  chesscomSync = !(res.settings && res.settings.chesscom_sync === false);
   const card = $("coach-ai");
   const busy = card && !card.hidden && !card.classList.contains("err");
   if (timeline.length && !busy) {
@@ -2959,6 +2992,7 @@ function init() {
   $("set-recent").addEventListener("input", syncProfileModeFromFields);
   $("set-lifetime").addEventListener("input", syncProfileModeFromFields);
   $("set-skill-auto").addEventListener("change", updateSkillUI);
+  $("set-chesscom-sync").addEventListener("change", updateChesscomSyncUI);
   $("set-elo").addEventListener("input", updateSkillUI);
   $("set-ollama-detect").addEventListener("click", detectOllama);
   $("set-ollama-model-select").addEventListener("change", (e) => {

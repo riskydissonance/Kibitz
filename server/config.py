@@ -344,8 +344,11 @@ LICHESS_TIMEOUT: float = float(os.environ.get("CHESS_LICHESS_TIMEOUT", "20"))
 # history; CHESS_CHESSCOM_SYNC=0 disables the automatic sync (manual fetch still works).
 CHESSCOM_API_BASE: str = os.environ.get("CHESS_CHESSCOM_API_BASE", "https://api.chess.com").rstrip("/")
 CHESSCOM_TIMEOUT: float = float(os.environ.get("CHESS_CHESSCOM_TIMEOUT", "20"))
+# Both the on/off flag and the count are user-editable in the Settings panel (settings.json wins
+# over env). Default count is small: launch sync should feel instant, and already-analyzed games
+# are skipped anyway — a bigger backlog can be pulled with the explicit ⟳ Sync button.
 CHESSCOM_SYNC_ENABLED: bool = os.environ.get("CHESS_CHESSCOM_SYNC", "1") != "0"
-CHESSCOM_SYNC_MAX: int = int(os.environ.get("CHESS_CHESSCOM_SYNC_MAX", "20"))
+CHESSCOM_SYNC_MAX: int = int(os.environ.get("CHESS_CHESSCOM_SYNC_MAX", "5"))
 
 # Endgame tablebase (server.core.tablebase). For <=7-man positions the in-browser chat / AI coach
 # facts include the EXACT theoretical result (win/draw/loss + DTZ/DTM) from the public Lichess
