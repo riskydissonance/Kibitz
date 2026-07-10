@@ -376,6 +376,10 @@ WEB_OPEN: bool = os.environ.get("CHESS_WEB_OPEN", "1") != "0"
 # /api/app-config and, when on, auto-loads the user's most recent Lichess game on open. Left off
 # (0) for the MCP-driven board and dev `run_web.py <pgn>` runs, so neither gets a surprise autoload.
 APP_MODE: bool = os.environ.get("CHESS_APP_MODE", "0") == "1"
+# App-mode auto-quit: whether the liveness watchdog may self-exit when the browser tab closes or
+# goes silent. Default OFF — the standalone app stays up until the user quits it (Settings → Quit).
+# Opt in with CHESS_APP_AUTOQUIT=1 to restore the old "close the tab to quit the app" behaviour.
+APP_AUTOQUIT: bool = os.environ.get("CHESS_APP_AUTOQUIT", "0") == "1"
 
 # Local / self-hosted LLM for the in-browser chat + AI coach summary. When LOCAL_LLM_BASE_URL is
 # set, the chat/coach are served by DIRECT HTTP to that server (see server.core.local_llm) — no

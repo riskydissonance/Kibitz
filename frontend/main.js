@@ -1286,13 +1286,21 @@ function startHeartbeat() {
   if (heartbeatTimer) return;
   const ping = () => fetch("/api/ping", { method: "POST", keepalive: true }).catch(() => {});
   ping();
-  heartbeatTimer = setInterval(ping, 15000); // backstop only; server tolerates minutes of silence
+  heartbeatTimer = setInterval(ping, 15000); // backstop only; the server tolerates ~30 min of silence
   // Fires on tab close, navigation, and refresh. sendBeacon delivers even as the page unloads.
   window.addEventListener("pagehide", () => {
     try {
       navigator.sendBeacon("/api/closing");
     } catch (_) {}
   });
+  // A backgrounded tab gets its timers throttled and is eventually frozen, so the interval above
+  // stalls — the server's long backstop covers that. The instant the tab is visible/focused again,
+  // ping right away so the watchdog re-arms immediately instead of waiting up to 15s.
+  const wake = () => {
+    if (document.visibilityState === "visible") ping();
+  };
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("focus", wake);
 }
 
 // --- server-stopped overlay + health watcher ------------------------------

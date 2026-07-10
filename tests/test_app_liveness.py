@@ -58,3 +58,12 @@ def test_start_is_noop_outside_app_mode(monkeypatch):
     app_liveness._started = False
     app_liveness.start()
     assert app_liveness._started is False
+
+
+def test_start_is_noop_without_autoquit(monkeypatch):
+    # In app mode but with auto-quit off (the default), the watchdog must not start.
+    monkeypatch.setattr(config, "APP_MODE", True)
+    monkeypatch.setattr(config, "APP_AUTOQUIT", False)
+    app_liveness._started = False
+    app_liveness.start()
+    assert app_liveness._started is False
