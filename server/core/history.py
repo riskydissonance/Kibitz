@@ -24,6 +24,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from server.core import reviews
+
 import chess
 
 from server import config
@@ -808,9 +810,11 @@ def history_rows(player_id: Optional[str] = None, data_dir: Optional[str] = None
     # record's frozen player_id — so a game keyed by a raw handle (e.g. a chess.com game recorded
     # before that handle was folded into "me") still tints once the handle is added in Settings.
     me = my_player_id(data_dir)
+    states = reviews.review_states(data_dir)
     rows = []
     for r in records:
         pgn = r.get("pgn")
+        st = states.get(f"{r.get('game_id')}:{r.get('reviewed_side') or ''}")
         rows.append(
             {
                 "game_id": r.get("game_id"),
@@ -835,6 +839,8 @@ def history_rows(player_id: Optional[str] = None, data_dir: Optional[str] = None
                 "game_url": r.get("game_url"),
                 "has_pgn": bool(pgn),
                 "pgn": pgn,
+                "reviewed": bool(st and st.get("reviewed")),
+                "note": (st.get("note") if st else "") or "",
             }
         )
     return rows

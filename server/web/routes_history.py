@@ -22,6 +22,7 @@ from server.core import lichess
 from server.core import lichess_study
 from server.core import multipgn
 from server.core import puzzles
+from server.core import reviews
 from server.core import srs
 from server.web import jobs
 
@@ -72,6 +73,36 @@ def get_history() -> dict:
     except Exception as exc:  # pragma: no cover - history must never break the board
         return {"games": [], "error": str(exc)}
     return {"player_id": history.my_player_id(), "games": rows}
+
+
+class ReviewBody(BaseModel):
+    game_id: str
+    reviewed_side: str = ""
+    reviewed: bool | None = None
+    note: str | None = None
+
+
+@router.get("/reviews")
+def get_reviews() -> dict:
+    try:
+        return {"reviews": reviews.review_states()}
+    except Exception as exc:  # pragma: no cover - reviews must never break the board
+        return {"reviews": {}, "error": str(exc)}
+
+
+@router.post("/reviews")
+def post_review(body: ReviewBody) -> JSONResponse:
+    if not (body.game_id or "").strip():
+        return JSONResponse({"error": "game_id required"}, status_code=400)
+    if body.reviewed is None and body.note is None:
+        return JSONResponse({"error": "nothing to update"}, status_code=400)
+    try:
+        st = reviews.set_review(
+            body.game_id, body.reviewed_side or "", reviewed=body.reviewed, note=body.note
+        )
+        return JSONResponse({"ok": True, "state": st})
+    except Exception as exc:  # pragma: no cover - defensive
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @router.get("/insights")

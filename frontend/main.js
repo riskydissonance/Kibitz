@@ -76,6 +76,7 @@ const LICHESS_PAGE = 5; // initial count + how many more each "Load more"
 // fixed-height scroll box) so the list starts short and grows on "Show more", not the page.
 let historyGames = []; // all rows from the last /api/history fetch
 let historyCount = 10; // how many to show now ("Show more" grows it)
+let unreviewedOnly = false; // "Unreviewed only" checkbox in the games list
 const HISTORY_PAGE = 10; // initial count + how many more each "Show more"
 // Puzzle trainer: when non-null the board is a "solve your own mistake" drill, not a game review.
 // { list:[puzzle...], idx, filter:{motif}, tries, revealed, solved }. See the puzzle section below.
@@ -1801,8 +1802,10 @@ async function loadHistory(doneMsg) {
 // Render the current page of "My games" into the (fixed-height, scrollable) list, with a
 // "Show more" row when there are extra games beyond what's shown. No refetch — pages a cached list.
 function renderMyGames() {
-  renderHistory(historyGames.slice(0, historyCount), "normal");
-  const remaining = historyGames.length - historyCount;
+  let games = historyGames;
+  if (unreviewedOnly) games = games.filter((g) => !g.reviewed);
+  renderHistory(games.slice(0, historyCount), "normal");
+  const remaining = games.length - historyCount;
   if (remaining > 0) {
     const li = document.createElement("li");
     li.className = "load-more";
@@ -1813,6 +1816,83 @@ function renderMyGames() {
     });
     $("history-list").appendChild(li);
   }
+}
+
+async function toggleReviewed(g) {
+  const next = !g.reviewed;
+  try {
+    await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game_id: g.game_id, reviewed_side: g.reviewed_side, reviewed: next }),
+    });
+  } catch (_) {
+    return;
+  }
+  g.reviewed = next; // mutate the cached row so re-render reflects it without a refetch
+  renderMyGames();
+}
+
+async function editNote(g) {
+  const next = window.prompt("Note for this game:", g.note || "");
+  if (next === null) return; // cancelled
+  try {
+    await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game_id: g.game_id, reviewed_side: g.reviewed_side, note: next }),
+    });
+  } catch (_) {
+    return;
+  }
+  g.note = next;
+  renderMyGames();
+  if (currentView === "notes") renderNotesView();
+}
+
+// The Notes view: every game with a note, newest-first, linking back to open the game.
+function renderNotesView() {
+  const body = $("notes-body");
+  if (!body) return;
+  const noted = historyGames.filter((g) => g.note && g.note.trim());
+  if (!noted.length) {
+    body.innerHTML = `<p class="muted">No notes yet. Mark a game with a note in the Games list.</p>`;
+    return;
+  }
+  const ol = document.createElement("ol");
+  ol.className = "notes-list";
+  for (const g of noted) {
+    const side = g.reviewed_side;
+    const opp = side === "white" ? g.black : g.white;
+    const li = document.createElement("li");
+    li.className = "note-item";
+    li.innerHTML =
+      `<div class="note-game"><span>${escapeHtml((resultWord(g.player_result) || "vs") + " " + (opp || "?"))}</span>` +
+      `<span class="note-meta">${escapeHtml((g.date || "") + " · " + (g.opening || "—"))}</span></div>` +
+      `<div class="note-text"></div><div class="note-links"></div>`;
+    li.querySelector(".note-text").textContent = g.note;
+    const links = li.querySelector(".note-links");
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "linklike";
+    open.textContent = "Open game →";
+    if (g.has_pgn && g.pgn) {
+      open.addEventListener("click", () => openGame(g.pgn, side));
+    } else {
+      open.disabled = true;
+      open.title = "No PGN stored for this game — re-analyze it to reopen.";
+    }
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "linklike";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => editNote(g));
+    links.appendChild(open);
+    links.appendChild(edit);
+    ol.appendChild(li);
+  }
+  body.innerHTML = "";
+  body.appendChild(ol);
 }
 
 // The two remote-games tabs differ only in endpoint, label, whose games "auto" side-inference
@@ -1892,6 +1972,7 @@ function renderHistory(games, mode, who) {
       // The backend computes `is_me` against the CURRENT identity (so a chess.com game recorded
       // before that handle was added to "me" still tints); fall back to the frozen id match.
       if (g.is_me || (myPlayerId && g.player_id && g.player_id === myPlayerId)) cls += " mine";
+      cls += g.reviewed ? " reviewed" : " unreviewed";
     } else {
       const w = (g.white || "").toLowerCase();
       const b = (g.black || "").toLowerCase();
@@ -1914,6 +1995,35 @@ function renderHistory(games, mode, who) {
           : "No PGN available for this game.";
     } else {
       li.addEventListener("click", () => openGame(g.pgn, side));
+    }
+    if (mode === "normal") {
+      if (g.note) {
+        const note = document.createElement("div");
+        note.className = "h-note";
+        note.textContent = g.note;
+        li.appendChild(note);
+      }
+      const actions = document.createElement("div");
+      actions.className = "h-actions";
+      const rev = document.createElement("button");
+      rev.type = "button";
+      rev.className = "h-act" + (g.reviewed ? " on" : "");
+      rev.textContent = g.reviewed ? "✓ Reviewed" : "Mark reviewed";
+      rev.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleReviewed(g);
+      });
+      const noteBtn = document.createElement("button");
+      noteBtn.type = "button";
+      noteBtn.className = "h-act";
+      noteBtn.textContent = g.note ? "✎ Edit note" : "＋ Note";
+      noteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        editNote(g);
+      });
+      actions.appendChild(rev);
+      actions.appendChild(noteBtn);
+      li.appendChild(actions);
     }
     ol.appendChild(li);
   }
@@ -2210,7 +2320,7 @@ function renderInsights(d) {
 // One view is visible at a time: review (board + games/analysis), puzzles (board + filters),
 // insights, settings. The board column is ONE shared element, re-parented into whichever view
 // is active (review-board-slot / puzzle-board-slot) so there's a single Chessground instance.
-const VIEWS = ["review", "puzzles", "insights", "settings"];
+const VIEWS = ["review", "puzzles", "insights", "notes", "settings"];
 let currentView = "review";
 let lastMainView = "review"; // where Cancel/Save in Settings returns to
 
@@ -2236,6 +2346,7 @@ function showView(name) {
   if (name === "review" && sidePane === "games") setMode(historyMode);
   else if (name === "puzzles") loadPuzzleThemes();
   else if (name === "insights") loadInsights();
+  else if (name === "notes") loadHistory().then(() => renderNotesView());
   else if (name === "settings") populateSettings();
 }
 
@@ -2265,6 +2376,7 @@ function activateTab(mode) {
   $("chesscom-form").style.display = mode === "chesscom" ? "flex" : "none";
   $("paste-form").style.display = mode === "paste" ? "flex" : "none";
   $("history-list").style.display = mode !== "paste" ? "" : "none";
+  $("unreviewed-filter").style.display = mode === "normal" ? "" : "none";
 }
 
 // Update the "Set as my account" button to reflect whether `who` (lowercased) is already you.
@@ -3173,6 +3285,11 @@ function init() {
   $("mode-lichess").addEventListener("click", () => setMode("lichess"));
   $("mode-chesscom").addEventListener("click", () => setMode("chesscom"));
   $("mode-paste").addEventListener("click", () => setMode("paste"));
+  $("unreviewed-only").addEventListener("change", (e) => {
+    unreviewedOnly = e.target.checked;
+    historyCount = HISTORY_PAGE;
+    renderMyGames();
+  });
   // Puzzle trainer: severity + time-window filters and the Lichess-study export.
   $("puzzle-days").addEventListener("change", (e) => {
     puzzleDays = Number(e.target.value) || 0;

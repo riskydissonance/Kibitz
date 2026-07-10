@@ -809,6 +809,26 @@ input:focus, textarea:focus, select:focus {
 .history li .h-title { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
 .history li .h-sub { color: var(--text-2); font-size: var(--fs-0); margin-top: 3px; }
 .history li .h-blunders { color: var(--blunder); font-weight: 600; font-size: var(--fs-0); white-space: nowrap; }
+.history li.unreviewed .h-title::after { content: "•"; color: #d9a441; margin-left: 4px; }
+.history li .h-note {
+  margin-top: 6px; font-size: var(--fs-0); color: var(--text-2);
+  border-left: 2px solid var(--border); padding-left: 8px; white-space: pre-wrap;
+}
+.history li .h-actions { display: flex; gap: 6px; margin-top: 8px; }
+.h-act {
+  font-size: var(--fs-0); padding: 2px 9px; border-radius: var(--r-1);
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-2); cursor: pointer;
+}
+.h-act:hover { background: var(--surface-1); }
+.h-act.on { border-color: var(--accent); color: var(--accent); }
+.unreviewed-filter { display: block; font-size: var(--fs-0); color: var(--text-2); margin: 2px 0 8px; cursor: pointer; user-select: none; }
+.notes-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.note-item { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-1); padding: 12px 14px; }
+.note-game { font-weight: 600; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.note-meta { color: var(--text-2); font-weight: 400; font-size: var(--fs-0); }
+.note-text { margin-top: 6px; white-space: pre-wrap; }
+.note-links { margin-top: 8px; display: flex; gap: 16px; }
 .history li.ph { background: none; border: none; color: var(--text-2); font-style: italic; cursor: default; padding: 6px 0; }
 .history li.load-more {
   text-align: center; color: var(--accent); font-weight: 600; background: none;

@@ -32,6 +32,9 @@
       <button id="rail-insights" class="rail-btn" title="Insights — your patterns across games" aria-label="Insights">
         <span class="rail-ico">📈</span><span class="rail-label">Insights</span>
       </button>
+      <button id="rail-notes" class="rail-btn" title="Notes — your notes across games" aria-label="Notes">
+        <span class="rail-ico">✎</span><span class="rail-label">Notes</span>
+      </button>
       <div class="rail-spacer"></div>
       <span class="help rail-help" tabindex="0" aria-label="Keyboard shortcuts">?
         <span class="help-tip" role="tooltip">
@@ -174,6 +177,9 @@
                     placeholder="your username (optional — for multi-game files)" />
                 </form>
                 <div id="history-status" class="hist-status"></div>
+                <label id="unreviewed-filter" class="unreviewed-filter" style="display:none">
+                  <input type="checkbox" id="unreviewed-only" /> Unreviewed only
+                </label>
                 <ol id="history-list" class="history"></ol>
               </div>
             </div>
@@ -279,6 +285,17 @@
           </header>
           <div id="insights-body" class="insights-body"></div>
           <div id="chart-tip" class="chart-tip" hidden></div>
+        </div>
+      </main>
+
+      <!-- ===== Notes: your notes across every reviewed game =============================== -->
+      <main id="view-notes" class="view">
+        <div class="page wide" id="notes">
+          <header class="page-head">
+            <h1>Notes</h1>
+            <p class="muted">Your notes across reviewed games. Click a note to open its game.</p>
+          </header>
+          <div id="notes-body" class="notes-body"></div>
         </div>
       </main>
 
