@@ -25,6 +25,7 @@ import time
 
 from server import config
 from server.core import engine
+from server.core import triage
 
 # Generous heartbeat backstop (seconds): long enough that background-tab timer throttling
 # (as slow as ~1/min) never trips it. Only catches a close that didn't fire the beacon.
@@ -83,9 +84,23 @@ def _analysis_running() -> bool:
         return False
 
 
+def _exit_reason() -> dict:
+    """A snapshot of why the watchdog is exiting, for the triage log."""
+    with _lock:
+        now = time.monotonic()
+        closing = _closing_at is not None
+        return {
+            "trigger": "close-beacon" if closing else "heartbeat-backstop",
+            "armed": _armed,
+            "since_last_beat_s": round(now - _last_beat, 1) if _armed else None,
+            "since_closing_s": round(now - _closing_at, 1) if closing else None,
+        }
+
+
 def _run() -> None:
     while not _stop.wait(1):
         if _expired() and not _analysis_running():
+            triage.event("exit-app-liveness", **_exit_reason())
             print(
                 "[chess-app] browser closed — shutting the app down.",
                 file=sys.stderr,

@@ -2892,6 +2892,22 @@ async function populateSettings() {
   $("set-sf-status").textContent = data.stockfish_ok
     ? "Stockfish engine found ✓"
     : "Stockfish not found — analysis won't run until this points at the engine.";
+  loadDiagnostics();
+}
+
+async function loadDiagnostics() {
+  const pre = $("diag-log");
+  if (!pre) return;
+  pre.textContent = "Loading…";
+  try {
+    const data = await fetch("/api/triage?lines=300").then((r) => r.json());
+    pre.textContent = (data.log && data.log.trim())
+      ? data.log
+      : "No stop/crash events recorded yet — that's good.";
+    pre.dataset.path = data.path || "";
+  } catch (_) {
+    pre.textContent = "Could not load diagnostics.";
+  }
 }
 
 // One-click Ollama setup: fill in the default URL if blank, ask the backend what models Ollama
@@ -3366,6 +3382,17 @@ function init() {
   $("settings-cancel").addEventListener("click", () => showView(lastMainView));
   $("settings-form").addEventListener("submit", saveSettings);
   $("settings-quit").addEventListener("click", quitApp);
+  $("diag-refresh").addEventListener("click", loadDiagnostics);
+  $("diag-copy").addEventListener("click", async () => {
+    const pre = $("diag-log");
+    try {
+      await navigator.clipboard.writeText(pre.textContent || "");
+      const btn = $("diag-copy");
+      const prev = btn.textContent;
+      btn.textContent = "Copied ✓";
+      setTimeout(() => (btn.textContent = prev), 1500);
+    } catch (_) {}
+  });
   $("set-profile-mode").addEventListener("change", applyProfilePreset);
   $("set-recent").addEventListener("input", syncProfileModeFromFields);
   $("set-lifetime").addEventListener("input", syncProfileModeFromFields);

@@ -464,6 +464,20 @@
               <button type="button" id="settings-quit" class="btn danger">Quit Kibitz</button>
             </div>
           </div>
+
+          <!-- Diagnostics: the persistent crash/exit triage log, so "it just stopped" is traceable. -->
+          <div id="settings-diagnostics" class="settings-card">
+            <label class="set-field">
+              <span class="set-label">Diagnostics</span>
+              <span class="set-hint">A running record of why the app has stopped (crashes, watchdog
+                exits, Quit). Paste this when reporting a problem.</span>
+            </label>
+            <div class="set-actions">
+              <button type="button" id="diag-refresh" class="btn">Refresh</button>
+              <button type="button" id="diag-copy" class="linklike">Copy</button>
+            </div>
+            <pre id="diag-log" class="diag-log" aria-live="polite"></pre>
+          </div>
         </div>
       </main>
     </div>

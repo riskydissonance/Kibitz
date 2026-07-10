@@ -18,6 +18,7 @@ import time
 
 from server import config
 from server.core import engine
+from server.core import triage
 
 _lock = threading.Lock()
 _last_activity = time.monotonic()
@@ -45,6 +46,7 @@ def _run(ttl: int) -> None:
     interval = max(1, min(ttl, 600))
     while not _stop.wait(interval):
         if _idle_seconds() >= ttl:
+            triage.event("exit-idle-timeout", ttl=ttl, idle_s=round(_idle_seconds(), 1))
             print(
                 f"[chess] no activity for {ttl}s — shutting the session down to free the process.",
                 file=sys.stderr,

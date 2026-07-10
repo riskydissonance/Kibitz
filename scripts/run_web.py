@@ -31,6 +31,7 @@ import uvicorn
 from server import config
 from server.core import engine
 from server.core import history
+from server.core import triage
 from server.core import session as session_mod
 from server.core import settings
 from server.core.game_analysis import analyze_game
@@ -44,6 +45,7 @@ CRASH_EXIT_CODE = 70
 
 
 def main() -> int:
+    triage.install(context="run_web")
     settings.apply_saved()  # settings.json (set via the app's Settings panel) overrides env config
     args = sys.argv[1:]
     serve_only = not args or args[0] == "--serve"
@@ -82,11 +84,14 @@ def main() -> int:
     try:
         uvicorn.run(create_app(), host=config.WEB_HOST, port=config.WEB_PORT, log_level="info")
     except KeyboardInterrupt:
-        pass  # Ctrl-C is a clean, user-requested stop — exit 0, not a crash
+        triage.event("exit-ctrl-c")  # Ctrl-C is a clean, user-requested stop — exit 0, not a crash
     except Exception as exc:  # noqa: BLE001 - anything else is a genuine crash; report it, don't propagate
+        triage.exception_event("exit-crash", exc)
         traceback.print_exc()
         print(f"[chess-web] server crashed: {exc}", file=sys.stderr, flush=True)
         return CRASH_EXIT_CODE
+    else:
+        triage.event("exit-clean-return")  # uvicorn returned on its own (e.g. SIGTERM graceful stop)
     finally:
         engine.shutdown()
     return 0

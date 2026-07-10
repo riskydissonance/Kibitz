@@ -126,6 +126,10 @@ def create_app() -> FastAPI:
 
         traceback.print_exc()
         print(f"[chess-web] request error: {exc}", file=sys.stderr, flush=True)
+
+        from server.core import triage
+
+        triage.exception_event("request-error", exc, path=str(request.url.path))
         return JSONResponse({"error": "internal server error"}, status_code=500)
 
     guard_active = _guard_is_active()

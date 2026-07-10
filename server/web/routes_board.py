@@ -18,6 +18,7 @@ from server.core import app_liveness
 from server.core import lines
 from server.core import local_llm
 from server.core import session as session_mod
+from server.core import triage
 
 router = APIRouter()
 
@@ -103,6 +104,7 @@ def post_shutdown() -> dict:
         from server.core import engine
 
         time.sleep(0.5)  # let the 200 response above actually reach the browser first
+        triage.event("exit-user-quit")
         try:
             engine.shutdown()
         finally:
@@ -140,6 +142,14 @@ def get_doctor() -> dict:
         return {"checks": doctor.status()}
     except Exception:  # noqa: BLE001 - a self-check must never break the page
         return {"checks": {}}
+
+
+@router.get("/triage")
+def get_triage(lines: int = 200) -> dict:
+    """Recent crash/exit triage log (server/core/triage.py) for the Settings → Diagnostics panel.
+    Best-effort; a missing log just means the app hasn't stopped since triage was added."""
+    lines = max(1, min(lines, 2000))
+    return {"path": triage.log_path(), "log": triage.recent(lines)}
 
 
 @router.get("/app-config")

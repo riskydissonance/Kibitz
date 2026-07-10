@@ -1019,6 +1019,12 @@ input:focus, textarea:focus, select:focus {
 .set-opt { font-weight: 400; color: var(--text-2); font-size: var(--fs-0); }
 .set-field input, .set-field select { width: 100%; }
 .set-hint { font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
+.diag-log {
+  margin-top: 8px; max-height: 260px; overflow: auto;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-1);
+  padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-0); color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+}
 .set-field[hidden] { display: none; }
 .set-field input[type="range"] {
   padding: 0; border: none; background: none; accent-color: var(--accent); cursor: pointer;
