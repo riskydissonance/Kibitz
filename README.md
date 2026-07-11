@@ -2,7 +2,7 @@
 
 **In case it's not obvious from the 'forked from' at the top, this is forked from Chess-analysis-mcp/tintins-chess-analysis and the vast majority of the credit goes to the author!**
 
-[![CI](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/actions/workflows/ci.yml)
+[![CI](https://github.com/riskydissonance/Kibitz/actions/workflows/ci.yml/badge.svg)](https://github.com/riskydissonance/Kibitz/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A chess coach you can actually **talk to**, and one that **doesn't make things up**. Ask why a move
@@ -119,7 +119,7 @@ paste / upload a PGN from anywhere (OTB, another site, a coach's file).
 
 <a id="review-mac"></a>
 **macOS — the app.** Download the zip from the
-[Releases page](https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases). Unzipping it
+[Releases page](https://github.com/riskydissonance/Kibitz/releases). Unzipping it
 gives you **`Kibitz.app`**. Drag that into **Applications**, and open it.
 
 - **First open:** it's unsigned, so macOS blocks it once. Double-click it (you'll get a "cannot
@@ -142,7 +142,7 @@ click the green **`< > Code`** button, and choose **Download ZIP** (see the circ
 </p>
 
 **Step 2 — unzip it.** Double-click the downloaded `.zip` to extract it. You'll get a folder named
-something like **`tintins-chess-analysis`** — open it. (On Windows, if it opens "inside" the zip
+something like **`Kibitz-main`** — open it. (On Windows, if it opens "inside" the zip
 first, drag the folder out to your Desktop, or right-click the zip → **Extract All**.)
 
 **Step 3 — double-click the launcher** inside that folder:

@@ -396,7 +396,7 @@ LOCAL_LLM_MODEL: str = os.environ.get("CHESS_LOCAL_LLM_MODEL", "").strip()
 # the latest GitHub release tag so the board can show a non-blocking "update available" notice.
 APP_VERSION: str = _read_app_version()
 # GitHub repo that publishes Releases (the update source of truth). "owner/name".
-UPDATE_REPO: str = os.environ.get("CHESS_UPDATE_REPO", "Chess-analysis-mcp/tintins-chess-analysis").strip()
+UPDATE_REPO: str = os.environ.get("CHESS_UPDATE_REPO", "riskydissonance/Kibitz").strip()
 # Master switch for the update check (the network call to GitHub). 0 disables it entirely.
 UPDATE_CHECK_ENABLED: bool = os.environ.get("CHESS_UPDATE_CHECK", "1") != "0"
 # Min seconds between GitHub release lookups (cached in-process + on disk so restarts don't re-hit).

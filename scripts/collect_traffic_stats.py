@@ -27,7 +27,7 @@ import os
 import subprocess
 import sys
 
-REPO_DEFAULT = "Chess-analysis-mcp/tintins-chess-analysis"
+REPO_DEFAULT = "riskydissonance/Kibitz"
 
 
 def gh_api(path: str) -> object:

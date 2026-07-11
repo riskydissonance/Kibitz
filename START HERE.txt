@@ -9,7 +9,7 @@ plain words. Pick the ONE option that matches what you want:
 --------------------------------------------------------
   • macOS:    Get "Kibitz.app" from the Releases page,
               drag it into Applications, then right-click it → Open.
-              (Releases: https://github.com/Chess-analysis-mcp/tintins-chess-analysis/releases)
+              (Releases: https://github.com/riskydissonance/Kibitz/releases)
 
   • Windows:  Double-click  "Kibitz.bat"
   • Linux:    Double-click  "Kibitz.command"

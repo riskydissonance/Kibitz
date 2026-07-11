@@ -1,6 +1,6 @@
 [project]
 name = "chess-review-mcp"
-version = "1.17.0"
+version = "2.0.0"
 description = "Kibitz - a local AI chess tutor: PGN -> Stockfish analysis -> mistakes explained in words, on the web board or from Claude Code via MCP."
 requires-python = ">=3.11"
 license = "MIT"

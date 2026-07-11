@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_REPO: Chess-analysis-mcp/tintins-chess-analysis   # repo whose stats we collect
+  SOURCE_REPO: riskydissonance/Kibitz   # repo whose stats we collect
   STATS_REPO: DimaPdemler/tintins-chess-stats              # PRIVATE repo we write the CSVs to
 
 jobs:

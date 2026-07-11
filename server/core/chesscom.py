@@ -51,7 +51,7 @@ class GameSummary:
 
 def _headers() -> dict[str, str]:
     # Chess.com blocks requests without a real User-Agent; identify ourselves politely.
-    return {"User-Agent": "kibitz-chess-tutor (github.com/Chess-analysis-mcp)"}
+    return {"User-Agent": "kibitz-chess-tutor (github.com/riskydissonance)"}
 
 
 def _get_json(url: str) -> dict:
