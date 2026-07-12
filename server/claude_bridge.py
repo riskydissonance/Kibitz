@@ -538,6 +538,27 @@ def _player_lost(sess) -> bool:
     return sess.result == ("0-1" if sess.player == "white" else "1-0")
 
 
+def _resilience_gift_ply(sess, best_run: list) -> int | None:
+    """If the run's recovery is attributable to an opponent blunder rather than genuine grinding,
+    return the ply of the player move right after the gift; else None.
+
+    MoveReview only stores the player's own moves (`all_moves` is "every move by player"), so we
+    can't inspect the opponent's move directly. Instead we look for an unexplained jump in win%
+    between the end of the defensive run and the next player move: if the player's own move
+    ending the run wasn't a serious error, a large jump in win_before by the time it's their turn
+    again can only have come from the opponent's move in between."""
+    moves = sess.all_moves
+    end_ply = best_run[-1].ply
+    later = [m for m in moves if m.ply > end_ply]
+    if not later:
+        return None
+    nxt = later[0]
+    jump = nxt.win_before - best_run[-1].win_after
+    if jump >= 20:
+        return nxt.ply
+    return None
+
+
 def _strengths(sess) -> list[str]:
     """Robust, can't-be-faked positive facts about the *whole game*, derived only from the sweep's
     per-move classification + win% (zero extra engine cost). The idea (Option 5): rather than hunt
@@ -581,10 +602,33 @@ def _strengths(sess) -> list[str]:
             sess
         )
         if recovered:
-            out.append(
-                f"Resilient defense: held a clearly worse position for {len(best_run)} straight "
-                "moves without a serious error and fought back toward equality."
-            )
+            gift_ply = _resilience_gift_ply(sess, best_run)
+            if gift_ply is None:
+                # Genuine gradual recovery — no unexplained jump in win% to credit to the
+                # opponent, so the player earned this one move by move.
+                out.append(
+                    f"Resilient defense: held a clearly worse position for {len(best_run)} straight "
+                    "moves without a serious error and fought back toward equality."
+                )
+            else:
+                gift_move = next(m for m in moves if m.ply == gift_ply)
+                missed_win_after_gift = gift_move in sess.mistakes and gift_move.win_after >= 45
+                if missed_win_after_gift:
+                    # The player got the gift but immediately failed to convert it — no
+                    # resilience strength to credit; Fix 1's missed-win line covers this move.
+                    pass
+                else:
+                    later_moves = [m for m in moves if m.ply >= gift_ply]
+                    capitalized = later_moves and all(
+                        m.classification in _GOOD_CLASS for m in later_moves[:3]
+                    ) and later_moves[-1].win_before >= 45
+                    if capitalized:
+                        out.append(
+                            f"Your opponent returned the favour on move {gift_move.move_number}; "
+                            "you stayed alert and took the game back to equal."
+                        )
+                    # else: the recovery came from the opponent, not the player, and the player
+                    # didn't clearly capitalize either — nothing honest to credit here.
 
     # Solid opening: your first several moves were all engine-approved (no inaccuracy or worse).
     opening = [m for m in moves if m.move_number <= 10]
@@ -675,6 +719,147 @@ def _sacrifices(sess, limit: int = 2):
     return out[:limit]
 
 
+# A flagged move where the player's win% is still healthy afterwards is a missed chance, not a
+# collapse — they failed to gain rather than actually getting worse.
+_MISSED_WIN_FLOOR = 45.0
+
+_MOTIF_PHRASES = {
+    "pawn_grab": "grabbed a pawn instead of the bigger idea",
+    "missed_capture": "missed a winning capture",
+    "missed_fork": "missed a fork",
+    "missed_mate": "missed a forced mate",
+    "hung_piece": "this hung a piece",
+    "allowed_fork": "allowed a fork",
+    "allowed_mate": "allowed a forced mate",
+    "back_rank": "a back-rank weakness",
+}
+
+
+def _is_missed_win(m) -> bool:
+    return m.win_after >= _MISSED_WIN_FLOOR
+
+
+def _motif_note(m) -> str:
+    """Short ' — this hung the knight / missed a fork' phrase from `history.tag_motifs`, or ''
+    when nothing fires. Motif tagging is engine-free (static python-chess over data already on
+    the move), so this adds no extra engine calls."""
+    best_uci = m.best_line_uci[0] if m.best_line_uci else None
+    try:
+        tags = history.tag_motifs(m.fen_before, m.move_uci, best_uci, m.win_swing, m.eval_before)
+    except (ValueError, AssertionError):
+        tags = []
+    if not tags:
+        return ""
+    phrases = [_MOTIF_PHRASES.get(t, t.replace("_", " ")) for t in tags]
+    return " — this " + " / ".join(phrases)
+
+
+def _single_flagged_line(m, avg_spent: float | None) -> str:
+    """One flagged-move fact line. A missed win (still >= _MISSED_WIN_FLOOR% afterwards) is worded
+    as an opportunity that slipped, not a collapse — the player didn't actually get worse."""
+    num = f"{m.move_number}{'.' if m.color == 'white' else '...'}"
+    if _is_missed_win(m):
+        line = (
+            f"- missed win: {num}{m.move_san} — {m.best_move_san} was winning here "
+            f"(win% stayed at {m.win_after}% but {m.best_move_san} kept more); engine preferred "
+            f"{m.best_move_san}. {m.comment}"
+        ).rstrip()
+    else:
+        line = (
+            f"- {num}{m.move_san} ({m.classification}, win {m.win_before}% -> {m.win_after}%, "
+            f"drop {m.win_swing}); engine preferred {m.best_move_san}. {m.comment}"
+        ).rstrip()
+    line += _motif_note(m)
+    line += _time_note(m, avg_spent)
+    return line
+
+
+def _flagged_lines(sess, avg_spent: float | None) -> list[tuple[float, str]]:
+    """(sort_key, line) pairs for the flagged-moves fact block.
+
+    Collapses consecutive flagged player moves (allowing the single opponent move in between,
+    i.e. ply advancing by exactly 2) that keep missing the SAME persisting opportunity into one
+    line, per Fix 1(b): either they share the same engine-preferred move, or they're all missed
+    wins with win_before >= 70 throughout the run. sort_key is the group's worst win_swing, so
+    the collapsed line sorts alongside ordinary flagged moves in the "worst first" list and
+    counts once against the 8-line cap.
+    """
+    chronological = sorted(sess.mistakes, key=lambda m: m.ply)
+    items: list[tuple[float, str]] = []
+    i = 0
+    while i < len(chronological):
+        m = chronological[i]
+        run = [m]
+        j = i + 1
+        while j < len(chronological):
+            nxt = chronological[j]
+            if nxt.ply - run[-1].ply != 2:  # not consecutive player moves
+                break
+            same_best = bool(m.best_move_san) and nxt.best_move_san == m.best_move_san
+            both_high_missed_wins = (
+                _is_missed_win(run[-1])
+                and _is_missed_win(nxt)
+                and run[-1].win_before >= 70
+                and nxt.win_before >= 70
+            )
+            if same_best or both_high_missed_wins:
+                run.append(nxt)
+                j += 1
+            else:
+                break
+        if len(run) >= 2:
+            first, last = run[0], run[-1]
+            span = (
+                f"{first.move_number}"
+                if first.move_number == last.move_number
+                else f"{first.move_number}–{last.move_number}"
+            )
+            avg_before = round(sum(x.win_before for x in run) / len(run))
+            line = (
+                f"- moves {span}: the winning shot {first.best_move_san} was available for "
+                f"{len(run)} moves running and was missed (win% stayed ~{avg_before}% before "
+                "each)."
+            ) + _motif_note(first)
+            items.append((max(x.win_swing for x in run), line))
+            i = j
+        else:
+            items.append((m.win_swing, _single_flagged_line(m, avg_spent)))
+            i += 1
+    return items
+
+
+def _turning_point(sess) -> str | None:
+    """The pivotal moment of the game: the FIRST player mistake/blunder after which the player's
+    win% never again reaches >= 45% (the first unrecovered serious error). Falls back to the
+    flagged move with the largest win_swing that was never recovered. None if the player never
+    had a serious error, or every serious error was recovered from."""
+    chronological = sorted(sess.all_moves, key=lambda m: m.ply)
+
+    def _never_recovers(m) -> bool:
+        return not any(
+            x.ply > m.ply and (x.win_before >= 45 or x.win_after >= 45) for x in chronological
+        )
+
+    candidate = next(
+        (m for m in chronological if m.classification in _SERIOUS_CLASS and _never_recovers(m)),
+        None,
+    )
+    if candidate is None:
+        never_recovered = [m for m in sess.mistakes if _never_recovers(m)]
+        if never_recovered:
+            candidate = max(never_recovered, key=lambda m: m.win_swing)
+    if candidate is None:
+        return None
+    later_peak = max(
+        (x.win_before for x in chronological if x.ply > candidate.ply), default=candidate.win_after
+    )
+    num = f"{candidate.move_number}{'.' if candidate.color == 'white' else '...'}"
+    return (
+        f"Turning point: {num}{candidate.move_san} — before it your win chance was "
+        f"{candidate.win_before}%; afterwards you were never better than {round(later_peak)}%."
+    )
+
+
 def _game_facts(sess) -> str:
     """Pre-computed, engine-grounded facts about the whole game for the coach summary prompt.
 
@@ -695,6 +880,9 @@ def _game_facts(sess) -> str:
     outcome = _outcome_facts(sess)
     if outcome:
         out.append(outcome)
+    turning_point = _turning_point(sess)
+    if turning_point:
+        out.append(turning_point)
     # Average think time across the player's moves, so the coach can judge a mistake's timing
     # relative to this player's own pace (a long think vs a blitzed-out / time-scramble move).
     spents = [m.seconds_spent for m in sess.all_moves if m.seconds_spent is not None]
@@ -719,14 +907,8 @@ def _game_facts(sess) -> str:
             )
     if sess.mistakes:
         out.append(f"{side}'s flagged moves (worst first):")
-        worst = sorted(sess.mistakes, key=lambda m: m.win_swing, reverse=True)
-        for m in worst[:8]:
-            num = f"{m.move_number}{'.' if m.color == 'white' else '...'}"
-            line = (
-                f"- {num}{m.move_san} ({m.classification}, win {m.win_before}% -> {m.win_after}%, "
-                f"drop {m.win_swing}); engine preferred {m.best_move_san}. {m.comment}".rstrip()
-            )
-            line += _time_note(m, avg_spent)
+        items = sorted(_flagged_lines(sess, avg_spent), key=lambda kv: kv[0], reverse=True)
+        for _, line in items[:8]:
             out.append(line)
     else:
         out.append(f"{side} made no inaccuracies, mistakes or blunders — a clean game.")
@@ -753,6 +935,11 @@ def coach_summary_ai(sess, *, timeout: int = 120) -> str:
         "or call an ordinary move good; if nothing genuinely stands out, just skip straight to the "
         "mistakes. Then name the one or two moments that mattered most IN THIS GAME (with the move "
         "and the better idea), and end with one concrete takeaway drawn from those specific moments. "
+        "For each key mistake you name, say concretely what the played move allowed — the "
+        "opponent's punishing reply, when the facts give it — and what the better move achieved; "
+        "avoid vague phrasing like 'this weakened your position'. If the facts state a 'Turning "
+        "point', anchor the narrative of what changed around that specific moment rather than "
+        "treating every flagged move as equally decisive. "
         "Honesty leads: don't soften a clear mistake, but frame it as something to improve rather "
         "than a verdict on the player. Ground every claim in "
         "the facts provided; do not invent moves or lines. Keep the summary about THIS game — only "
