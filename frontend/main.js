@@ -106,6 +106,17 @@ let coachAiToken = 0;
 // Whether chat questions inject the cross-game coaching profile (a Settings option, default on).
 let personalizeHistory = true;
 
+// Auto-mark reviewed (opt-in, default off, persisted client-side): once every flagged mistake in
+// the open game has been visited (via selectMistake), automatically toggle it reviewed. Tracked
+// per session — `visitedMistakes` resets whenever a new game is opened (beginProvisional).
+const AUTO_MARK_KEY = "autoMarkReviewed";
+let autoMarkReviewed = localStorage.getItem(AUTO_MARK_KEY) === "1";
+let visitedMistakes = new Set();
+
+// Games-list scroll position, preserved across Games/Analysis tab switches and background
+// list refreshes (see captureHistoryScroll / restoreHistoryScroll and renderHistory below).
+let savedHistoryScroll = 0;
+
 const $ = (id) => document.getElementById(id);
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
@@ -702,6 +713,21 @@ async function selectMistake(i) {
   );
   gotoNode(anchorNode);
   $("comment").textContent = mistakes[i].comment || "";
+  visitedMistakes.add(i);
+  maybeAutoMarkReviewed();
+}
+
+// Auto-mark reviewed (opt-in Settings toggle, default off): once every flagged mistake in the
+// open game has been visited this session, mark it reviewed automatically — same effect as
+// pressing "Mark reviewed", just triggered once, and only if it isn't already marked.
+function maybeAutoMarkReviewed() {
+  if (!autoMarkReviewed) return;
+  if (!currentHistoryGame || currentHistoryGame.reviewed) return;
+  if (!mistakes.length) return;
+  for (let i = 0; i < mistakes.length; i++) {
+    if (!visitedMistakes.has(i)) return;
+  }
+  toggleReviewed(currentHistoryGame);
 }
 
 // --- scoreboard (game report header) -------------------------------------
@@ -1609,6 +1635,7 @@ function beginProvisional(pgn, side, metaText) {
   currentMistake = -1;
   anchorNode = 0;
   mistakes = [];
+  visitedMistakes = new Set(); // fresh per-game tracking for the auto-mark-reviewed setting
   currentPgn = pgn; // enable "Review other side" immediately; names fill in at phase-2
   gameWhite = "";
   gameBlack = "";
@@ -1681,6 +1708,7 @@ async function openGame(pgn, side, historyEntry) {
   batchInfo = null; // a single open is not a batch
   currentHistoryGame = historyEntry || null;
   updateReviewedButton();
+  updateActiveGameHighlight(); // highlight this row in the games list, if it's already rendered
   showBoard(); // navigate to the Review view so the opened game is in front
   beginProvisional(pgn, side);
   // AWAIT the POST: jobs.start switches the server's session/job synchronously, so by the time it
@@ -1723,7 +1751,41 @@ async function openBatch(pgnText, side, username) {
   $("history-status").textContent = `Analyzing ${res.total_games} games${who} → they'll appear in My games.`;
   showBoard(); // navigate to the Review view so the opened game is in front
   beginProvisional(res.first_pgn, res.first_side, `Analyzing game 1 of ${res.total_games}…`);
+  if (historyMode === "normal") renderBatchPlaceholders(res.total_games);
   startPolling();
+}
+
+// While a batch is analyzing, show one placeholder row per game at the top of "My games" with a
+// spinner, so progress is visible without touching the rest of the (already-rendered) list. Only
+// a full loadHistory() (in onAnalysisReady, once the whole batch finishes) replaces these with the
+// real rows — no per-game re-fetch/re-render while the batch is still running.
+function renderBatchPlaceholders(total) {
+  const ol = $("history-list");
+  if (!ol) return;
+  captureHistoryScroll();
+  const frag = document.createDocumentFragment();
+  for (let i = 1; i <= total; i++) {
+    const li = document.createElement("li");
+    li.className = "h-batch-row";
+    li.dataset.batchIndex = String(i);
+    li.innerHTML = `<span class="h-batch-spinner" aria-hidden="true"></span><span>Analyzing game ${i} of ${total}…</span>`;
+    frag.appendChild(li);
+  }
+  ol.insertBefore(frag, ol.firstChild);
+  restoreHistoryScroll();
+}
+
+// Flip placeholder rows 1..doneCount from "analyzing" to "done" in place — no DOM rebuild.
+function updateBatchPlaceholders(doneCount) {
+  const ol = $("history-list");
+  if (!ol) return;
+  ol.querySelectorAll(".h-batch-row").forEach((li) => {
+    const i = Number(li.dataset.batchIndex);
+    if (i <= doneCount && !li.classList.contains("done")) {
+      li.classList.add("done");
+      li.querySelector("span:last-child").textContent = `Game ${i} analyzed ✓`;
+    }
+  });
 }
 
 function startPolling() {
@@ -1735,10 +1797,11 @@ function startPolling() {
     } catch (_) {
       return;
     }
-    // Batch: surface each finished game in "My games" as it lands.
+    // Batch: flip each finished game's placeholder row to "done" in place — a full list
+    // re-render/re-fetch only happens once, when the whole batch completes (onAnalysisReady).
     if (batchInfo && st.done_games != null && st.done_games !== batchInfo.lastDone) {
       batchInfo.lastDone = st.done_games;
-      if (historyMode === "normal") loadHistory();
+      if (historyMode === "normal") updateBatchPlaceholders(st.done_games);
     }
     if (st.status === "ready") {
       stopPolling();
@@ -1802,6 +1865,7 @@ async function onAnalysisReady() {
 function matchCurrentHistoryGame() {
   currentHistoryGame = historyGames.find((h) => h.pgn === currentPgn) || null;
   updateReviewedButton();
+  updateActiveGameHighlight();
 }
 
 function onAnalysisError(msg) {
@@ -1999,8 +2063,40 @@ async function loadRemote(provider, username) {
 const resultClass = (r) => (r === "win" ? "win" : r === "loss" ? "loss" : r === "draw" ? "draw" : "");
 const resultWord = (r) => ({ win: "Won", loss: "Lost", draw: "Drew" }[r] || "");
 
+// Capture/restore the games-list scroll position around a re-render. `#history-list` isn't
+// independently scrollable (the page scrolls), so we track both the list element itself (in case
+// that ever changes) and the document scroller.
+function captureHistoryScroll() {
+  const ol = $("history-list");
+  const winEl = document.scrollingElement || document.documentElement;
+  savedHistoryScroll = { list: ol ? ol.scrollTop : 0, win: winEl.scrollTop };
+}
+function restoreHistoryScroll() {
+  const ol = $("history-list");
+  const winEl = document.scrollingElement || document.documentElement;
+  if (!savedHistoryScroll) return;
+  if (ol) ol.scrollTop = savedHistoryScroll.list;
+  winEl.scrollTop = savedHistoryScroll.win;
+}
+
+// Re-apply the "currently open game" highlight to the games list without a re-render — used after
+// currentHistoryGame changes but the list DOM is already up to date (e.g. right after opening a
+// game from the list, where a full re-render would also cost the scroll position).
+function updateActiveGameHighlight() {
+  const ol = $("history-list");
+  if (!ol) return;
+  ol.querySelectorAll("li[data-game-id]").forEach((li) => {
+    const on =
+      !!currentHistoryGame &&
+      li.dataset.gameId === String(currentHistoryGame.game_id) &&
+      li.dataset.side === currentHistoryGame.reviewed_side;
+    li.classList.toggle("active-game", on);
+  });
+}
+
 function renderHistory(games, mode, who) {
   const ol = $("history-list");
+  captureHistoryScroll();
   ol.innerHTML = "";
   for (const g of games) {
     const li = document.createElement("li");
@@ -2020,6 +2116,11 @@ function renderHistory(games, mode, who) {
       // before that handle was added to "me" still tints); fall back to the frozen id match.
       if (g.is_me || (myPlayerId && g.player_id && g.player_id === myPlayerId)) cls += " mine";
       cls += g.reviewed ? " reviewed" : " unreviewed";
+      if (currentHistoryGame && g.game_id === currentHistoryGame.game_id && side === currentHistoryGame.reviewed_side) {
+        cls += " active-game";
+      }
+      li.dataset.gameId = g.game_id;
+      li.dataset.side = side;
     } else {
       const w = (g.white || "").toLowerCase();
       const b = (g.black || "").toLowerCase();
@@ -2074,6 +2175,7 @@ function renderHistory(games, mode, who) {
     }
     ol.appendChild(li);
   }
+  restoreHistoryScroll();
 }
 
 // --- insights panel --------------------------------------------------------
@@ -2403,11 +2505,15 @@ function showView(name) {
 // Review's right panel: the games list, or the analysis of the open game.
 let sidePane = "games";
 function showSidePane(pane) {
-  sidePane = pane === "review" ? "review" : "games";
+  const next = pane === "review" ? "review" : "games";
+  // Leaving the games list: remember where it was scrolled so switching back doesn't reset it.
+  if (sidePane === "games" && next !== "games") captureHistoryScroll();
+  sidePane = next;
   $("side-games").classList.toggle("active", sidePane === "games");
   $("side-review").classList.toggle("active", sidePane === "review");
   $("games-pane").hidden = sidePane !== "games";
   $("review-pane").hidden = sidePane !== "review";
+  if (sidePane === "games") restoreHistoryScroll();
 }
 
 // Bring the board + analysis in front (opening a game lands here) — every "open" path calls this.
@@ -2939,6 +3045,7 @@ async function populateSettings() {
   $("set-coach-ai-auto").checked = !!s.coach_ai_auto; // auto-generate per game (default off)
   $("set-coach-ai-persist").checked = s.coach_ai_persist !== false; // remember summaries (default on)
   $("set-personalize").checked = s.personalize_history !== false; // personalize chat (default on)
+  $("set-auto-mark-reviewed").checked = autoMarkReviewed; // client-side only (localStorage), default off
   $("set-sf-status").textContent = data.stockfish_ok
     ? "Stockfish engine found ✓"
     : "Stockfish not found — analysis won't run until this points at the engine.";
@@ -3004,6 +3111,10 @@ async function detectOllama() {
 async function saveSettings(e) {
   e.preventDefault();
   $("settings-status").textContent = "Saving…";
+  // Client-side only (not sent to the server): saved to localStorage immediately, independent of
+  // the /api/settings round-trip below.
+  autoMarkReviewed = $("set-auto-mark-reviewed").checked;
+  localStorage.setItem(AUTO_MARK_KEY, autoMarkReviewed ? "1" : "0");
   const patch = {
     username: $("set-username").value.trim(),
     chesscom_username: $("set-chesscom").value.trim(),
@@ -3291,6 +3402,14 @@ function initBoardResizer() {
   });
 }
 
+// Keyboard-shortcuts overlay (the ? key or the under-board ? button).
+function openShortcuts() {
+  $("shortcuts-modal").hidden = false;
+}
+function closeShortcuts() {
+  $("shortcuts-modal").hidden = true;
+}
+
 function init() {
   showView("review"); // landing view: board + games list (the games pane is active by default)
   ground = Chessground($("board"), {
@@ -3319,6 +3438,11 @@ function init() {
   $("fwd").addEventListener("click", stepForward);
   $("jump-end").addEventListener("click", jumpToEnd);
   $("mark-reviewed").addEventListener("click", () => currentHistoryGame && toggleReviewed(currentHistoryGame));
+  $("shortcuts-btn").addEventListener("click", openShortcuts);
+  $("shortcuts-close").addEventListener("click", closeShortcuts);
+  $("shortcuts-modal").addEventListener("click", (e) => {
+    if (e.target === $("shortcuts-modal")) closeShortcuts(); // click on the backdrop, not the card
+  });
   $("prev-mistake").addEventListener("click", () => currentMistake > 0 && selectMistake(currentMistake - 1));
   $("next-mistake").addEventListener(
     "click",
@@ -3457,12 +3581,26 @@ function init() {
     $("set-local-llm-model").value = e.target.value; // picking a detected model fills the saved field
   });
   window.addEventListener("keydown", (e) => {
+    // The shortcuts overlay takes priority over everything else while open: Escape (or any other
+    // key besides another ?) just closes it.
+    if (!$("shortcuts-modal").hidden) {
+      if (e.key === "Escape" || e.key === "?") {
+        e.preventDefault();
+        closeShortcuts();
+      }
+      return;
+    }
     // Escape blurs the chat box (or any field) so board hotkeys work again.
     if (e.key === "Escape" && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
       e.target.blur();
       return;
     }
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "?") {
+      e.preventDefault();
+      openShortcuts();
+      return;
+    }
     if (puzzle) {
       // Puzzle mode: → / space / n advance, Escape exits; game-review navigation is suspended.
       if (e.key === "ArrowRight" || e.key === " " || e.key === "n" || e.key === "N") {

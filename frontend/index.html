@@ -109,6 +109,7 @@
                 </label>
                 <button id="flip-review" type="button" class="btn" hidden
                   title="Re-analyse this same game from the other player's perspective (in case the wrong side was picked)">↺ Other side</button>
+                <button id="shortcuts-btn" type="button" class="btn shortcuts-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
               </div>
 
               <!-- Puzzle-mode controls (Reveal / Next / Exit): swapped in for #game-controls while
@@ -366,6 +367,15 @@
                 Turn off to set your own level.</span>
             </label>
 
+            <label class="set-field set-check">
+              <span class="set-check-row">
+                <input id="set-auto-mark-reviewed" type="checkbox" />
+                <span class="set-label">Auto-mark games reviewed after visiting all mistakes</span>
+              </span>
+              <span class="set-hint">Off by default. When on, opening every flagged mistake in a game
+                automatically marks it reviewed — saved on this device only.</span>
+            </label>
+
             <div id="skill-manual" class="set-field" hidden>
               <span class="set-label">Mistake sensitivity
                 <span class="set-opt" id="set-elo-label"></span></span>
@@ -504,6 +514,30 @@
         </label>
         <button type="submit" class="btn primary">Continue</button>
       </form>
+    </div>
+
+    <!-- Keyboard shortcuts overlay: opened via the ? key or the under-board ? button; closes on
+         Esc or a click outside the card. -->
+    <div id="shortcuts-modal" class="shortcuts-overlay" hidden role="dialog" aria-modal="true"
+         aria-labelledby="shortcuts-title">
+      <div class="shortcuts-card">
+        <div class="shortcuts-head">
+          <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+          <button type="button" id="shortcuts-close" class="linklike" aria-label="Close">✕</button>
+        </div>
+        <div class="shortcuts-list">
+          <div><kbd>←</kbd> / <kbd>→</kbd><span>Previous / next move</span></div>
+          <div><kbd>↑</kbd> / <kbd>↓</kbd><span>Start / end of game</span></div>
+          <div><kbd>Space</kbd><span>Next move</span></div>
+          <div><kbd>n</kbd> / <kbd>p</kbd><span>Next / previous mistake</span></div>
+          <div><kbd>f</kbd><span>Flip board</span></div>
+          <div><kbd>l</kbd><span>Toggle best-move arrows</span></div>
+          <div><kbd>t</kbd><span>Toggle threat arrows</span></div>
+          <div><kbd>r</kbd> / <kbd>g</kbd><span>Review / games list</span></div>
+          <div><kbd>Esc</kbd><span>Close this / blur a field</span></div>
+          <div><kbd>?</kbd><span>Show this help</span></div>
+        </div>
+      </div>
     </div>
 
     <!-- Server-stopped overlay: shown by the health watcher (all modes) when the server stops

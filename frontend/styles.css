@@ -646,8 +646,10 @@ input:focus, textarea:focus, select:focus {
 .movelist .ply:not(.empty):hover { background: var(--surface-3); }
 .movelist .ply.active { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 
-/* Classification glyphs (?!, ?, ??, ✓). */
-.glyph { font-weight: 700; font-size: 11px; line-height: 1; }
+/* Classification glyphs (?!, ?, ??, ✓). Faded in (not popped in) — these land in a burst right
+   after phase-2 analysis finishes and rebuilds the move list. */
+.glyph { font-weight: 700; font-size: 11px; line-height: 1; animation: glyph-fade-in 0.35s ease; }
+@keyframes glyph-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .glyph.inaccuracy { color: var(--inaccuracy); }
 .glyph.mistake { color: var(--mistake); }
 .glyph.blunder { color: var(--blunder); }
@@ -810,6 +812,35 @@ input:focus, textarea:focus, select:focus {
 .history li .h-sub { color: var(--text-2); font-size: var(--fs-0); margin-top: 3px; }
 .history li .h-blunders { color: var(--blunder); font-weight: 600; font-size: var(--fs-0); white-space: nowrap; }
 .history li.unreviewed .h-title::after { content: "•"; color: #d9a441; margin-left: 4px; }
+/* The game currently open on the board, kept in sync with currentHistoryGame. */
+.history li.active-game {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.history li.active-game:hover { background: var(--accent-dim); }
+/* Batch-analysis progress rows: placeholders shown while a multi-game upload analyzes, flipped
+   from spinner to done in place — no list re-render until the whole batch finishes. */
+.h-batch-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 9px 12px;
+  margin-bottom: 6px;
+  font-size: var(--fs-1);
+  color: var(--text-2);
+  cursor: default;
+}
+.h-batch-spinner {
+  width: 11px; height: 11px; flex: none;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: h-batch-spin 0.7s linear infinite;
+}
+.h-batch-row.done .h-batch-spinner { animation: none; border-color: var(--accent); border-top-color: var(--accent); }
+.h-batch-row.done { color: var(--text); }
+@keyframes h-batch-spin { to { transform: rotate(360deg); } }
 .history li .h-note {
   margin-top: 6px; font-size: var(--fs-0); color: var(--text-2);
   border-left: 2px solid var(--border); padding-left: 8px; white-space: pre-wrap;
@@ -1003,6 +1034,43 @@ input:focus, textarea:focus, select:focus {
 }
 .firstrun-card h2 { margin: 0; font-size: var(--fs-4); }
 .firstrun-card p { margin: 0; font-size: var(--fs-1); }
+
+/* Keyboard shortcuts overlay — opened via the ? key or the under-board ? button. */
+.shortcuts-overlay {
+  position: fixed; inset: 0; z-index: 150;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+}
+.shortcuts-overlay[hidden] { display: none; }
+.shortcuts-card {
+  background: var(--surface-1); border: 1px solid var(--border-strong); border-radius: 14px;
+  padding: 22px 26px; width: min(360px, 90vw);
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: var(--shadow-2);
+}
+.shortcuts-head { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-head h2 { margin: 0; font-size: var(--fs-3); }
+.shortcuts-list { display: flex; flex-direction: column; gap: 9px; }
+.shortcuts-list div { display: flex; align-items: center; gap: 10px; font-size: var(--fs-1); }
+.shortcuts-list span { color: var(--text-2); }
+.shortcuts-list kbd {
+  display: inline-block;
+  min-width: 15px;
+  padding: 1px 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+}
+.shortcuts-btn {
+  width: 26px; height: 26px; padding: 0;
+  border-radius: 50%;
+  font-weight: 700;
+}
 
 /* Settings form: its own view now (a centred page), not a modal. */
 .settings-card {
