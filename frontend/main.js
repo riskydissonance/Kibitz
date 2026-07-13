@@ -3680,12 +3680,15 @@ function init() {
 
 // On a wide-enough viewport, show the Games list and Analysis panes side by side instead of behind
 // tabs — plenty of room, and flipping between them is annoying when both fit. A `.wide-duo` class
-// on each `.duo` container drives this in CSS; JS only tracks the breakpoint via matchMedia (no
-// extra logic needed in showSidePane — the CSS override makes both panes visible regardless of the
-// `hidden` attribute JS sets, so opening a game while wide never has anything to "un-hide").
+// on the Review view's `.duo` container (#review-duo) drives this in CSS; JS only tracks the
+// breakpoint via matchMedia (no extra logic needed in showSidePane — the CSS override makes both
+// panes visible regardless of the `hidden` attribute JS sets, so opening a game while wide never
+// has anything to "un-hide"). Scoped to Review only — Puzzles has its own `.duo` container that
+// must never get this class, or its single-pane layout breaks.
 const wideDuoMQ = window.matchMedia("(min-width: 1600px)");
 function applyWideDuo() {
-  document.querySelectorAll(".duo").forEach((el) => el.classList.toggle("wide-duo", wideDuoMQ.matches));
+  const el = document.getElementById("review-duo");
+  if (el) el.classList.toggle("wide-duo", wideDuoMQ.matches);
 }
 function initWideDuo() {
   wideDuoMQ.addEventListener("change", applyWideDuo);

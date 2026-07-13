@@ -1137,25 +1137,29 @@ input:focus, textarea:focus, select:focus {
 .server-stopped-card p { margin: 0; font-size: var(--fs-1); color: var(--text-2); }
 
 /* Wide screens: room to show Games and Analysis side by side instead of behind tabs. The
-   `.wide-duo` class is applied by JS via matchMedia (see initWideDuo in main.js); these rules
-   override the tab-driven [hidden] attribute JS sets on #games-pane/#review-pane, so both panes
-   stay visible no matter which one JS thinks is "active". */
+   `.wide-duo` class is applied by JS (see applyWideDuo in main.js) to #review-duo only — the
+   Review view's `.duo` container — never to the Puzzles view's `.duo`, which keeps its normal
+   single-pane layout at all widths. These rules override the tab-driven [hidden] attribute JS
+   sets on #games-pane/#review-pane, so both panes stay visible no matter which one JS thinks is
+   "active". Analysis is placed left of Games via `order`. */
 @media (min-width: 1600px) {
-  .duo.wide-duo { max-width: none; }
-  .wide-duo #side-tabs { display: none; }
-  .wide-duo .side-col {
+  #review-duo.wide-duo { max-width: none; }
+  #review-duo.wide-duo #side-tabs { display: none; }
+  #review-duo.wide-duo .side-col {
     flex: 0 1 820px;
     width: 820px;
     flex-direction: row;
     align-items: flex-start;
     gap: 20px;
   }
-  .wide-duo #games-pane, .wide-duo #review-pane,
-  .wide-duo #games-pane[hidden], .wide-duo #review-pane[hidden] {
+  #review-duo.wide-duo #games-pane, #review-duo.wide-duo #review-pane,
+  #review-duo.wide-duo #games-pane[hidden], #review-duo.wide-duo #review-pane[hidden] {
     display: flex;
     flex: 1 1 0;
     min-width: 0;
   }
+  /* Analysis on the left, Games on the right. */
+  #review-duo.wide-duo #review-pane { order: -1; }
 }
 
 /* --- 9. Responsive ----------------------------------------------------------------------------- */
