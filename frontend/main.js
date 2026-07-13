@@ -68,6 +68,8 @@ let historyMode = "normal"; // "normal" (local games) | "lichess" | "chesscom" |
 let myPlayerId = ""; // configured user's id, for inferring side on lichess lookups
 let pollTimer = null; // analysis-status poller
 let batchInfo = null; // {total, self_handle, lastDone} while a multi-game upload is analyzing
+let currentHistoryGame = null; // historyGames entry for the game on the board, if known (drives the
+// under-board "Mark reviewed" button; null until matched, e.g. right after a fresh analysis)
 // Remote tabs (Lichess / Chess.com) share one loader; per-provider paging + shown handle.
 const remoteCount = { lichess: 5, chesscom: 5 }; // how many recent games to show ("Load more" grows it)
 const remoteUser = { lichess: "", chesscom: "" }; // the handle currently shown (for "Load more")
@@ -442,6 +444,12 @@ function stepBack() {
 }
 function stepForward() {
   if (!exploring && cur < timeline.length - 1) gotoNode(cur + 1);
+}
+function jumpToStart() {
+  gotoNode(0); // same as ArrowUp
+}
+function jumpToEnd() {
+  gotoNode(timeline.length - 1); // same as ArrowDown
 }
 
 function undoOne() {
@@ -1667,8 +1675,12 @@ function reviewOtherSide() {
   openGame(currentPgn, player === "white" ? "black" : "white");
 }
 
-async function openGame(pgn, side) {
+// `historyEntry`, when the caller already has it (a click in "My games"), lets the under-board
+// "Mark reviewed" button work immediately instead of waiting on a loadHistory() round-trip.
+async function openGame(pgn, side, historyEntry) {
   batchInfo = null; // a single open is not a batch
+  currentHistoryGame = historyEntry || null;
+  updateReviewedButton();
   showBoard(); // navigate to the Review view so the opened game is in front
   beginProvisional(pgn, side);
   // AWAIT the POST: jobs.start switches the server's session/job synchronously, so by the time it
@@ -1763,21 +1775,33 @@ async function onAnalysisReady() {
     if (historyMode === "normal") loadHistory();
     return;
   }
-  // Keep the user where they were navigating; if they hadn't moved, jump to the first mistake.
-  if (prevCur === 0 && mistakes.length) selectMistake(session.current_index ?? 0);
-  else gotoNode(clamp(prevCur, 0, timeline.length - 1));
+  // Keep the user where they were navigating; a fresh open (prevCur === 0, nothing played yet)
+  // lands on the starting position rather than jumping straight to the first mistake.
+  gotoNode(clamp(prevCur, 0, timeline.length - 1));
   restoreChat(); // repopulate this game's in-memory Q&A (if we've chatted about it this session)
   prepareCoachAI(session); // timeline is set now → show saved summary, auto-generate, or offer button
+  updateReviewedButton(); // the just-opened game isn't in historyGames yet — clears until matched below
   if (batchInfo) {
-    // Whole upload done: surface every game in "My games".
+    // Whole upload done: surface every game in "My games" — but only if the user hasn't manually
+    // switched to a different games-source tab while the batch was analyzing; don't yank it back.
     const n = batchInfo.total;
     const who = batchInfo.self_handle ? ` as ${batchInfo.self_handle}` : "";
     batchInfo = null;
-    activateTab("normal");
-    loadHistory(`Analyzed ${n} game${n === 1 ? "" : "s"}${who}. Showing the first below.`);
+    if (historyMode === "normal") {
+      loadHistory(`Analyzed ${n} game${n === 1 ? "" : "s"}${who}. Showing the first below.`).then(
+        matchCurrentHistoryGame
+      );
+    }
   } else if (historyMode === "normal") {
-    loadHistory(); // the just-analyzed game now appears in the list
+    loadHistory().then(matchCurrentHistoryGame); // the just-analyzed game now appears in the list
   }
+}
+
+// Find the "My games" entry matching the game now on the board (by PGN) so the under-board
+// "Mark reviewed" button can reflect/toggle its state. historyGames must already be loaded.
+function matchCurrentHistoryGame() {
+  currentHistoryGame = historyGames.find((h) => h.pgn === currentPgn) || null;
+  updateReviewedButton();
 }
 
 function onAnalysisError(msg) {
@@ -1839,6 +1863,21 @@ async function toggleReviewed(g) {
   }
   g.reviewed = next; // mutate the cached row so re-render reflects it without a refetch
   renderMyGames();
+  updateReviewedButton(); // in sync whether toggled from the list or the under-board button
+}
+
+// Reflect currentHistoryGame's reviewed state on the under-board button (hidden until we know
+// which "My games" row the open game corresponds to — see matchCurrentHistoryGame).
+function updateReviewedButton() {
+  const btn = $("mark-reviewed");
+  if (!btn) return;
+  if (!currentHistoryGame) {
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  btn.textContent = currentHistoryGame.reviewed ? "✓ Reviewed" : "Mark reviewed";
+  btn.classList.toggle("on", !!currentHistoryGame.reviewed);
 }
 
 async function editNote(g) {
@@ -1885,7 +1924,7 @@ function renderNotesView() {
     open.className = "linklike";
     open.textContent = "Open game →";
     if (g.has_pgn && g.pgn) {
-      open.addEventListener("click", () => openGame(g.pgn, side));
+      open.addEventListener("click", () => openGame(g.pgn, side, g));
     } else {
       open.disabled = true;
       open.title = "No PGN stored for this game — re-analyze it to reopen.";
@@ -2002,7 +2041,7 @@ function renderHistory(games, mode, who) {
           ? "Can't reopen — this game was analyzed before PGNs were stored. Re-analyze it from Lichess."
           : "No PGN available for this game.";
     } else {
-      li.addEventListener("click", () => openGame(g.pgn, side));
+      li.addEventListener("click", () => openGame(g.pgn, side, mode === "normal" ? g : undefined));
     }
     if (mode === "normal") {
       if (g.note) {
@@ -2343,6 +2382,7 @@ function placeBoard(view) {
 
 function showView(name) {
   if (!VIEWS.includes(name)) return;
+  const prevView = currentView; // captured before we overwrite it below
   if (name !== "settings") lastMainView = name;
   currentView = name;
   for (const v of VIEWS) {
@@ -2350,8 +2390,10 @@ function showView(name) {
     $(`rail-${v}`).classList.toggle("active", v === name);
   }
   placeBoard(name);
-  // Entering a data view refreshes it (cheap: local reads), so it's never stale.
-  if (name === "review" && sidePane === "games") setMode(historyMode);
+  // Entering a data view refreshes it (cheap: local reads), so it's never stale. But if we're
+  // ALREADY on "review" (e.g. openGame() re-asserting it while a game loads), skip the refetch —
+  // it would flash/reset the games list (or re-query a remote source) for no visible reason.
+  if (name === "review" && sidePane === "games" && prevView !== "review") setMode(historyMode);
   else if (name === "puzzles") loadPuzzleThemes();
   else if (name === "insights") loadInsights();
   else if (name === "notes") loadHistory().then(() => renderNotesView());
@@ -3272,8 +3314,11 @@ function init() {
   restoreBoardSize();
   initBoardResizer();
 
+  $("jump-start").addEventListener("click", jumpToStart);
   $("back").addEventListener("click", stepBack);
   $("fwd").addEventListener("click", stepForward);
+  $("jump-end").addEventListener("click", jumpToEnd);
+  $("mark-reviewed").addEventListener("click", () => currentHistoryGame && toggleReviewed(currentHistoryGame));
   $("prev-mistake").addEventListener("click", () => currentMistake > 0 && selectMistake(currentMistake - 1));
   $("next-mistake").addEventListener(
     "click",
@@ -3437,10 +3482,10 @@ function init() {
       stepForward();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      gotoNode(0); // jump to the start of the game (Lichess: ↑)
+      jumpToStart(); // jump to the start of the game (Lichess: ↑)
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      gotoNode(timeline.length - 1); // jump to the end of the game (Lichess: ↓)
+      jumpToEnd(); // jump to the end of the game (Lichess: ↓)
     } else if (e.key === " ") {
       e.preventDefault();
       stepForward(); // space = next move (Lichess)
@@ -3470,7 +3515,22 @@ function init() {
   });
 
   loadAll();
-  loadHistory(); // populate the games panel regardless of whether a game is loaded
+  loadHistory().then(matchCurrentHistoryGame); // populate the games panel regardless of whether a game is loaded
+  initWideDuo();
+}
+
+// On a wide-enough viewport, show the Games list and Analysis panes side by side instead of behind
+// tabs — plenty of room, and flipping between them is annoying when both fit. A `.wide-duo` class
+// on each `.duo` container drives this in CSS; JS only tracks the breakpoint via matchMedia (no
+// extra logic needed in showSidePane — the CSS override makes both panes visible regardless of the
+// `hidden` attribute JS sets, so opening a game while wide never has anything to "un-hide").
+const wideDuoMQ = window.matchMedia("(min-width: 1600px)");
+function applyWideDuo() {
+  document.querySelectorAll(".duo").forEach((el) => el.classList.toggle("wide-duo", wideDuoMQ.matches));
+}
+function initWideDuo() {
+  wideDuoMQ.addEventListener("change", applyWideDuo);
+  applyWideDuo();
 }
 
 init();

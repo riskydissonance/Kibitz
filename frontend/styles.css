@@ -1068,6 +1068,28 @@ input:focus, textarea:focus, select:focus {
 .server-stopped-card h2 { margin: 0 0 10px; font-size: var(--fs-4); }
 .server-stopped-card p { margin: 0; font-size: var(--fs-1); color: var(--text-2); }
 
+/* Wide screens: room to show Games and Analysis side by side instead of behind tabs. The
+   `.wide-duo` class is applied by JS via matchMedia (see initWideDuo in main.js); these rules
+   override the tab-driven [hidden] attribute JS sets on #games-pane/#review-pane, so both panes
+   stay visible no matter which one JS thinks is "active". */
+@media (min-width: 1600px) {
+  .duo.wide-duo { max-width: none; }
+  .wide-duo #side-tabs { display: none; }
+  .wide-duo .side-col {
+    flex: 0 1 820px;
+    width: 820px;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .wide-duo #games-pane, .wide-duo #review-pane,
+  .wide-duo #games-pane[hidden], .wide-duo #review-pane[hidden] {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 /* --- 9. Responsive ----------------------------------------------------------------------------- */
 /* Stack the board views when board + side panel no longer fit side by side. */
 @media (max-width: 1000px) {

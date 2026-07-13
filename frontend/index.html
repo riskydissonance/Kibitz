@@ -89,14 +89,18 @@
 
               <div class="controls" id="game-controls">
                 <div class="ctrl-group">
+                  <button id="jump-start" class="btn" title="Jump to start of game (↑)">⏮</button>
                   <button id="back" class="btn" title="Back one move (←)">◀</button>
                   <button id="fwd" class="btn" title="Forward one move (→ or Space)">▶</button>
+                  <button id="jump-end" class="btn" title="Jump to end of game (↓)">⏭</button>
                 </div>
                 <div class="ctrl-group">
                   <button id="prev-mistake" class="btn" title="Previous mistake (p)">‹ Mistake</button>
                   <button id="next-mistake" class="btn" title="Next mistake (n)">Mistake ›</button>
                   <button id="reset" class="btn" title="Snap back to the move under review">↩ Review move</button>
                 </div>
+                <button id="mark-reviewed" class="btn h-act" type="button" hidden
+                  title="Mark this game as reviewed (kept in sync with its row in My games)">Mark reviewed</button>
                 <label class="toggle" title="Toggle best-move arrows (l) — green = what should have been played instead of the dark played-move arrow (all green: the played move WAS best)">
                   <input type="checkbox" id="best-toggle" checked /> Best move
                 </label>
