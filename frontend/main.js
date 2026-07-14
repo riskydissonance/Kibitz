@@ -73,6 +73,8 @@ let currentHistoryGame = null; // historyGames entry for the game on the board, 
 // Remote tabs (Lichess / Chess.com) share one loader; per-provider paging + shown handle.
 const remoteCount = { lichess: 5, chesscom: 5 }; // how many recent games to show ("Load more" grows it)
 const remoteUser = { lichess: "", chesscom: "" }; // the handle currently shown (for "Load more")
+const remoteGames = { lichess: [], chesscom: [] }; // last-fetched games per provider, unfiltered (re-rendered on filter changes)
+const remoteWho = { lichess: "", chesscom: "" }; // lowercased handle used for side inference, cached alongside remoteGames
 const LICHESS_PAGE = 5; // initial count + how many more each "Load more"
 // "My games": /api/history returns every analysed game; we render them in pages (inside the
 // fixed-height scroll box) so the list starts short and grows on "Show more", not the page.
@@ -2059,10 +2061,29 @@ async function loadRemote(provider, username) {
   const games = data.games || [];
   const who = (username || p.defaultWho() || "").toLowerCase();
   if (p.onLoaded) p.onLoaded(who);
-  renderHistory(games, "remote", who);
+  remoteGames[provider] = games;
+  remoteWho[provider] = who;
+  renderRemote(provider);
   $("history-status").textContent = games.length ? "" : "No games found.";
+}
+
+// Render a remote tab's cached games, applying the "Unreviewed only" filter if set.
+// Remote games are matched to locally analyzed games by URL, so "unreviewed" here
+// means "not marked reviewed locally" (there's no server-side reviewed flag for them).
+function renderRemote(provider) {
+  let games = remoteGames[provider];
+  if (unreviewedOnly) {
+    const reviewedUrls = new Set(
+      historyGames
+        .filter((g) => g.reviewed && g.game_url)
+        .map((g) => g.game_url.trim().replace(/\/+$/, ""))
+    );
+    games = games.filter((g) => !reviewedUrls.has((g.url || "").trim().replace(/\/+$/, "")));
+  }
+  renderHistory(games, "remote", remoteWho[provider]);
   // While the server keeps returning a full page, there are probably more to fetch.
-  if (games.length >= remoteCount[provider]) {
+  // This is based on the unfiltered count, since filtering is purely a local-display concern.
+  if (remoteGames[provider].length >= remoteCount[provider]) {
     const li = document.createElement("li");
     li.className = "load-more";
     li.textContent = "Load more";
@@ -2553,7 +2574,7 @@ function activateTab(mode) {
   $("chesscom-form").style.display = mode === "chesscom" ? "flex" : "none";
   $("paste-form").style.display = mode === "paste" ? "flex" : "none";
   $("history-list").style.display = mode !== "paste" ? "" : "none";
-  $("unreviewed-filter").style.display = mode === "normal" ? "" : "none";
+  $("unreviewed-filter").style.display = mode !== "paste" ? "" : "none";
 }
 
 // Update the "Set as my account" button to reflect whether `who` (lowercased) is already you.
@@ -3502,7 +3523,11 @@ function init() {
   $("unreviewed-only").addEventListener("change", (e) => {
     unreviewedOnly = e.target.checked;
     historyCount = HISTORY_PAGE;
-    renderMyGames();
+    if (historyMode === "normal") {
+      renderMyGames();
+    } else if (historyMode === "lichess" || historyMode === "chesscom") {
+      if (remoteGames[historyMode].length) renderRemote(historyMode);
+    }
   });
   // Puzzle trainer: severity + time-window filters and the Lichess-study export.
   $("puzzle-days").addEventListener("change", (e) => {
