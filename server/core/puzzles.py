@@ -37,6 +37,14 @@ _TACTICAL_MOTIFS = {
 
 _MAX_DRILL_PLIES = 9  # up to 5 solver moves; mate lines still end exactly on the mate
 
+# Below this win% before the mistake, the player was already lost — drilling "the move you missed"
+# in a hopeless position is a poor lesson (there usually wasn't a save anyway).
+_MIN_WIN_BEFORE = 20.0
+
+# Ply < 10 (first 5 full moves) is still book/opening theory — engine evals are noisy there and
+# "mistakes" flagged that early are rarely a real lesson.
+_MIN_PLY = 10
+
 
 def _drill_line(fen: str, pv: list[str], motifs: list[str]) -> tuple[list[str], list[str], bool]:
     """The playable drill sequence from `pv`: (ucis, sans, ends_in_mate).
@@ -106,6 +114,13 @@ def _puzzle_from_mistake(rec: dict, m: dict, pv: Optional[list[str]] = None) -> 
     solution = (m.get("best_uci") or "").strip()
     played = (m.get("uci") or "").strip()
     if not fen or not solution or solution == played:
+        return None
+
+    win_before = m.get("win_before")
+    if win_before is not None and win_before < _MIN_WIN_BEFORE:
+        return None
+    ply = m.get("ply")
+    if ply is not None and ply < _MIN_PLY:
         return None
 
     legal_san = _san(fen, solution)

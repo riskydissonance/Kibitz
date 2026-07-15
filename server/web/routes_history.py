@@ -300,6 +300,38 @@ def get_puzzle_themes(days: int = 0, kinds: str = "") -> dict:
         return {"themes": [], "error": str(exc)}
 
 
+@router.get("/puzzles/daily")
+def get_puzzles_daily() -> dict:
+    """Today's session: a bundle of up to 10 puzzles — due-and-seen first, then never-seen
+    puzzles prioritized by your most common weaknesses (same order `themes()` ranks motifs), so
+    each day's drill front-loads whatever you're worst at. `done_today` counts attempts already
+    recorded today (UTC), for a simple progress readout."""
+    try:
+        # Weakness-ranked: motifs most-common first (themes() order), puzzles within each motif
+        # in build_puzzles' own hardest-first order; a puzzle can only match its first-listed motif
+        # here since daily_session dedupes by id anyway.
+        motif_order = [t["motif"] for t in puzzles.themes()]
+        all_items = puzzles.build_puzzles()
+        by_motif: dict[str, list[dict]] = {}
+        unranked: list[dict] = []
+        for p in all_items:
+            motifs = p.get("motifs") or []
+            m0 = next((m for m in motifs if m in motif_order), None)
+            (by_motif.setdefault(m0, []) if m0 else unranked).append(p)
+        ranked = [p for m in motif_order for p in by_motif.get(m, [])] + unranked
+        states = srs.puzzle_states()
+        now = datetime.now(timezone.utc)
+        items = srs.daily_session(ranked, states, now, limit=10)
+        today = now.date().isoformat()
+        done_today = sum(
+            1 for a in srs.load_attempts()
+            if (a.get("ts") or "")[:10] == today
+        )
+        return {"count": len(items), "puzzles": items, "done_today": done_today}
+    except Exception as exc:  # pragma: no cover - a trainer must never break the board
+        return {"puzzles": [], "count": 0, "done_today": 0, "error": str(exc)}
+
+
 class AttemptBody(BaseModel):
     puzzle_id: str
     result: str = "fail"

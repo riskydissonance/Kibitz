@@ -2599,6 +2599,7 @@ let puzzleEco = ""; // opening filter, set when drilling a repertoire row from I
 async function loadPuzzleThemes() {
   const wrap = $("puzzle-themes");
   const exportBtn = $("puzzle-export");
+  const dailyBtn = $("puzzle-daily");
   if (!wrap) return;
   wrap.innerHTML = `<span class="muted">Loading your weaknesses…</span>`;
   let data;
@@ -2615,9 +2616,20 @@ async function loadPuzzleThemes() {
     wrap.innerHTML = `<span class="muted">No puzzles yet — analyze some of your games first, then
       your blunders and missed tactics become puzzles here.</span>`;
     if (exportBtn) exportBtn.disabled = true;
+    if (dailyBtn) dailyBtn.hidden = true;
     return;
   }
   if (exportBtn) exportBtn.disabled = false;
+  if (dailyBtn) {
+    try {
+      const daily = await fetch("/api/puzzles/daily").then((r) => r.json());
+      const count = (daily && daily.count) || 0;
+      dailyBtn.hidden = count === 0;
+      dailyBtn.textContent = `▶ Today's session (${count} puzzles)`;
+    } catch (_) {
+      dailyBtn.hidden = true;
+    }
+  }
   // "All" chip first (train everything), then one chip per weakness, most common first.
   const chips = [{ motif: "", label: "All weaknesses", count: total }].concat(themes);
   wrap.innerHTML = chips
@@ -2674,6 +2686,32 @@ async function startPuzzles(motif, eco = "") {
   showPuzzle(0);
 }
 
+// Today's bundle: due-and-seen puzzles first, then never-seen puzzles weakness-ranked, capped at
+// 10 by the server (srs.daily_session) — a lighter, guided alternative to picking a theme chip.
+async function startDailySession() {
+  $("puzzles-status").textContent = "Loading today's session…";
+  let data;
+  try {
+    data = await fetch("/api/puzzles/daily").then((r) => r.json());
+  } catch (_) {
+    $("puzzles-status").textContent = "Couldn't load today's session.";
+    return;
+  }
+  const list = (data && data.puzzles) || [];
+  if (!list.length) {
+    $("puzzles-status").textContent = "Nothing due right now — nice work.";
+    return;
+  }
+  if (!puzzle) {
+    preDrillMeta = $("game-meta").textContent;
+    preDrillOrient = orient;
+  }
+  puzzle = { list, idx: 0, motif: "", tries: 0, revealed: false, solved: false, session: true };
+  showView("puzzles");
+  $("puzzles-status").textContent = "";
+  showPuzzle(0);
+}
+
 // The full drill sequence for a puzzle: solver moves at even indices, engine replies between.
 // Single-move puzzles (old records with no cached line, quiet positional slips) have length 1.
 function puzzleLine(p) {
@@ -2726,7 +2764,7 @@ function paintPuzzleBoard(shapes = []) {
   });
   setAutoShapesSafe(shapes);
   const opp = (p.color === "white" ? p.black : p.white) || "?";
-  $("game-meta").textContent = `Puzzle ${puzzle.idx + 1} of ${puzzle.list.length} — from your game vs ${opp}`;
+  $("game-meta").textContent = `Puzzle ${puzzle.idx + 1} of ${puzzle.list.length} — from your game vs ${opp} (${p.date || '?'}, ${p.opening || '?'})`;
 }
 
 // The "your move" prompt line, with sequence progress when the drill is longer than one move.
@@ -2787,6 +2825,8 @@ function onPuzzleMove(orig, dest) {
     if (puzzle.plies >= line.length) {
       // Sequence complete.
       puzzle.solved = true;
+      puzzle.solvedCount = (puzzle.solvedCount || 0) + 1;
+      if (puzzle.tries === 0 && !puzzle.failed) puzzle.firstTryCount = (puzzle.firstTryCount || 0) + 1;
       recordPuzzleAttempt("pass", puzzle.tries === 0 && !puzzle.failed);
       const extra = puzzle.tries === 0 ? "first try!" : `after ${puzzle.tries + 1} tries.`;
       const what = line.length > 1 ? (p.mate ? "Checkmate!" : "Full sequence!") : escapeHtml(p.solution_san) + ",";
@@ -2814,6 +2854,28 @@ function onPuzzleMove(orig, dest) {
       ground.setAutoShapes([]);
       puzzleStatusPrompt();
     }, 550);
+    return;
+  }
+  // Not the expected move — but if it's a LEGAL move that delivers checkmate right now, that's a
+  // valid alternate solution (there can be more than one mate); accept it rather than making the
+  // solver hunt for the exact engine line.
+  const scratch = new Chess(chess.fen());
+  const mv = scratch.move({ from: orig, to: dest, promotion: promo });
+  if (mv && scratch.isCheckmate()) {
+    chess.move({ from: orig, to: dest, promotion: promo });
+    ground.set({
+      fen: chess.fen(),
+      turnColor: turnColor(),
+      check: chess.inCheck(),
+      movable: { color: undefined, dests: new Map() },
+    });
+    ground.setAutoShapes([{ orig, dest, brush: "green" }]);
+    puzzle.solved = true;
+    puzzle.solvedCount = (puzzle.solvedCount || 0) + 1;
+    if (puzzle.tries === 0 && !puzzle.failed) puzzle.firstTryCount = (puzzle.firstTryCount || 0) + 1;
+    recordPuzzleAttempt("pass", puzzle.tries === 0 && !puzzle.failed);
+    $("status").innerHTML = `✅ <b>Correct</b> — checkmate! <span class="muted">(the engine's line was ${escapeHtml(p.line_san ? p.line_san.join(' ') : p.solution_san)})</span>`;
+    renderPuzzlePanel();
     return;
   }
   // Wrong: flash a red arrow on the attempt, snap the board back (keeping sequence progress),
@@ -2870,10 +2932,37 @@ function revealPuzzle() {
   step();
 }
 
+// Open the puzzle's source game in the Review view, jumped to the move where the mistake happened.
+// Reuses the same open path as the "My games" list (openGame with the historyEntry so Mark
+// Reviewed works immediately) — fetches /api/history to find the record by game_id since the
+// puzzle dict itself doesn't carry the PGN.
+async function viewPuzzleInGame(p) {
+  if (!p.game_id) return;
+  let rows;
+  try {
+    rows = await fetch("/api/history").then((r) => r.json());
+  } catch (_) {
+    return;
+  }
+  const entry = (rows && rows.games || []).find((g) => String(g.game_id) === String(p.game_id) && g.has_pgn);
+  if (!entry) return; // can't find/open it — fail gracefully, leave the puzzle drill as-is
+  const ply = Number((p.id || "").split(":")[1]);
+  await openGame(entry.pgn, entry.reviewed_side || p.color, entry);
+  if (Number.isFinite(ply) && timeline.length) {
+    gotoNode(clamp(ply, 0, timeline.length - 1));
+  }
+  // If timeline is still empty here, openGame only kicked off polling (cache miss) — the user is
+  // looking at "Analyzing…"; skip the jump silently rather than adding extra callback plumbing.
+}
+
 function nextPuzzle() {
   if (!puzzle) return;
   if (puzzle.idx + 1 >= puzzle.list.length) {
-    $("status").innerHTML = `🎉 That's all ${puzzle.list.length} puzzles in this set. Nice work.`;
+    if (puzzle.session) {
+      $("status").innerHTML = `🎉 <b>Session complete!</b> Solved ${puzzle.solvedCount || 0} of ${puzzle.list.length} — ${puzzle.firstTryCount || 0} first try.`;
+    } else {
+      $("status").innerHTML = `🎉 That's all ${puzzle.list.length} puzzles in this set. Nice work.`;
+    }
     puzzle.finished = true;
     renderPuzzlePanel();
     return;
@@ -2898,14 +2987,18 @@ function renderPuzzlePanel() {
   const gameLink = p.game_url
     ? `<a href="${escapeHtml(p.game_url)}" target="_blank" rel="noopener" class="linklike">see the full game ↗</a>`
     : "";
+  const viewGameBtn = p.game_id
+    ? `<button type="button" id="pz-view-game" class="linklike">View in game →</button>`
+    : "";
   bar.innerHTML =
     `<button type="button" id="pz-reveal" ${done ? "disabled" : ""}>💡 Reveal</button>` +
     `<button type="button" id="pz-next">${done ? "Next ▶" : "Skip ▶"}</button>` +
     `<button type="button" id="pz-exit" class="linklike">Exit puzzles</button>` +
-    (done ? `<span class="pz-context">${gameLink}</span>` : "");
+    (done ? `<span class="pz-context">${gameLink} ${viewGameBtn}</span>` : "");
   $("pz-reveal").onclick = revealPuzzle;
   $("pz-next").onclick = nextPuzzle;
   $("pz-exit").onclick = exitPuzzleMode;
+  if ($("pz-view-game")) $("pz-view-game").onclick = () => viewPuzzleInGame(p);
 }
 
 function exitPuzzleMode() {
@@ -3543,6 +3636,7 @@ function init() {
     if (puzzle) startPuzzles(puzzle.motif, puzzleEco); // re-fetch in the new order for the current set
   });
   $("puzzle-export").addEventListener("click", exportPuzzlesToStudy);
+  $("puzzle-daily").addEventListener("click", startDailySession);
   // Paste-PGN: analyze any PGN (e.g. Chess.com), single or multi-game, without the Lichess fetch.
   $("paste-upload").addEventListener("click", () => $("paste-file").click());
   $("paste-file").addEventListener("change", (e) => {

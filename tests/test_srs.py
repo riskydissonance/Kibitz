@@ -110,3 +110,42 @@ def test_order_puzzles_keeps_all_puzzles(data_dir):
     ordered = srs.order_puzzles(puzzles, data_dir=data_dir, now=now)
     assert len(ordered) == 20
     assert {p["id"] for p in ordered} == {p["id"] for p in puzzles}
+
+
+# --- daily_session ---------------------------------------------------------------------------
+
+
+def test_daily_session_due_seen_before_never_seen():
+    now = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    items = [{"id": "new1"}, {"id": "due1"}, {"id": "new2"}]
+    states = {
+        "due1": {"box": 0, "last_ts": "2026-01-08T00:00:00Z", "seen": 1},
+    }
+    out = srs.daily_session(items, states, now)
+    assert [p["id"] for p in out] == ["due1", "new1", "new2"]
+
+
+def test_daily_session_skips_not_due_seen_items():
+    now = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    items = [{"id": "not_due"}, {"id": "new1"}]
+    states = {
+        # box 1 -> 1 day interval; last_ts is now, so not yet due.
+        "not_due": {"box": 1, "last_ts": "2026-01-10T00:00:00Z", "seen": 1},
+    }
+    out = srs.daily_session(items, states, now)
+    assert [p["id"] for p in out] == ["new1"]
+
+
+def test_daily_session_dedups_by_id():
+    now = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    items = [{"id": "a"}, {"id": "a"}, {"id": "b"}]
+    out = srs.daily_session(items, {}, now)
+    assert [p["id"] for p in out] == ["a", "b"]
+
+
+def test_daily_session_caps_at_limit():
+    now = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    items = [{"id": f"n{i}"} for i in range(5)]
+    out = srs.daily_session(items, {}, now, limit=3)
+    assert len(out) == 3
+    assert [p["id"] for p in out] == ["n0", "n1", "n2"]

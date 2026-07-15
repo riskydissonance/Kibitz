@@ -24,7 +24,7 @@ def _mistake(
     classification: str = "blunder",
     win_drop: float = 25.0,
     motifs: list[str] | None = None,
-    ply: int = 7,
+    ply: int = 21,
 ) -> dict:
     return {
         "ply": ply,
@@ -101,10 +101,10 @@ def test_puzzles_sorted_blunders_first_then_win_drop(data_dir):
             _rec(
                 "g1",
                 [
-                    _mistake(classification="inaccuracy", win_drop=6.0, ply=1),
-                    _mistake(classification="blunder", win_drop=20.0, ply=3),
-                    _mistake(classification="blunder", win_drop=45.0, ply=5),
-                    _mistake(classification="mistake", win_drop=12.0, ply=7),
+                    _mistake(classification="inaccuracy", win_drop=6.0, ply=21),
+                    _mistake(classification="blunder", win_drop=20.0, ply=23),
+                    _mistake(classification="blunder", win_drop=45.0, ply=25),
+                    _mistake(classification="mistake", win_drop=12.0, ply=27),
                 ],
             )
         ],
@@ -120,8 +120,8 @@ def test_puzzles_sorted_blunders_first_then_win_drop(data_dir):
 
 
 def test_filters_by_eco(data_dir):
-    najdorf = _rec("g1", [_mistake(motifs=["hung_piece"], ply=1)]) | {"eco": "B90"}
-    italian = _rec("g2", [_mistake(motifs=["hung_piece"], ply=1)]) | {"eco": "C50"}
+    najdorf = _rec("g1", [_mistake(motifs=["hung_piece"], ply=21)]) | {"eco": "B90"}
+    italian = _rec("g2", [_mistake(motifs=["hung_piece"], ply=21)]) | {"eco": "C50"}
     _write([najdorf, italian], data_dir)
     out = puzzles.build_puzzles(eco="B90", data_dir=data_dir)
     assert len(out) == 1
@@ -137,9 +137,9 @@ def test_filters_motif_kinds_and_limit(data_dir):
             _rec(
                 "g1",
                 [
-                    _mistake(motifs=["hung_piece"], classification="blunder", ply=1),
-                    _mistake(motifs=["missed_fork"], classification="mistake", ply=3),
-                    _mistake(motifs=["hung_piece"], classification="inaccuracy", ply=5),
+                    _mistake(motifs=["hung_piece"], classification="blunder", ply=21),
+                    _mistake(motifs=["missed_fork"], classification="mistake", ply=23),
+                    _mistake(motifs=["hung_piece"], classification="inaccuracy", ply=25),
                 ],
             )
         ],
@@ -157,11 +157,11 @@ def test_unsolvable_mistakes_are_skipped(data_dir):
             _rec(
                 "g1",
                 [
-                    _mistake(best="", ply=1),  # no better move recorded
-                    _mistake(best="d2d3", played="d2d3", ply=3),  # solution == played
-                    _mistake(fen="", ply=5),  # no position
+                    _mistake(best="", ply=21),  # no better move recorded
+                    _mistake(best="d2d3", played="d2d3", ply=23),  # solution == played
+                    _mistake(fen="", ply=25),  # no position
                     # illegal stored solution AND no stored SAN -> skipped, not served broken
-                    _mistake(best="a1a8", best_san=None, ply=7),
+                    _mistake(best="a1a8", best_san=None, ply=27),
                 ],
             )
         ],
@@ -176,9 +176,9 @@ def test_themes_counts_match_solvable_puzzles(data_dir):
             _rec(
                 "g1",
                 [
-                    _mistake(motifs=["hung_piece", "missed_fork"], ply=1),
-                    _mistake(motifs=["hung_piece"], ply=3),
-                    _mistake(motifs=["hung_piece"], best="", ply=5),  # unsolvable: not counted
+                    _mistake(motifs=["hung_piece", "missed_fork"], ply=21),
+                    _mistake(motifs=["hung_piece"], ply=23),
+                    _mistake(motifs=["hung_piece"], best="", ply=25),  # unsolvable: not counted
                 ],
             )
         ],
@@ -191,6 +191,52 @@ def test_themes_counts_match_solvable_puzzles(data_dir):
         "count": 2,
     }
     assert {t["motif"]: t["count"] for t in out} == {"hung_piece": 2, "missed_fork": 1}
+
+
+def test_lost_position_mistakes_are_excluded(data_dir):
+    # win_before below _MIN_WIN_BEFORE: the player was already lost, no lesson to drill.
+    _write(
+        [_rec("g1", [_mistake(motifs=["hung_piece"]) | {"win_before": 15.0}])],
+        data_dir,
+    )
+    assert puzzles.build_puzzles(data_dir=data_dir) == []
+
+
+def test_opening_ply_mistakes_are_excluded(data_dir):
+    # ply below _MIN_PLY: still book theory, not a real lesson.
+    _write([_rec("g1", [_mistake(motifs=["hung_piece"], ply=6)])], data_dir)
+    assert puzzles.build_puzzles(data_dir=data_dir) == []
+
+
+def test_missing_win_before_or_ply_still_included(data_dir):
+    # Old records without these fields shouldn't be filtered out.
+    m1 = _mistake(motifs=["hung_piece"], ply=21)
+    m1.pop("win_before")
+    m2 = _mistake(motifs=["hung_piece"], ply=23)
+    m2.pop("ply")
+    m3 = _mistake(motifs=["hung_piece"], ply=25)
+    m3.pop("win_before")
+    m3.pop("ply")
+    _write([_rec("g1", [m1, m2, m3])], data_dir)
+    assert len(puzzles.build_puzzles(data_dir=data_dir)) == 3
+
+
+def test_themes_counts_reflect_lost_position_and_ply_filters(data_dir):
+    _write(
+        [
+            _rec(
+                "g1",
+                [
+                    _mistake(motifs=["hung_piece"], ply=21),  # counted
+                    _mistake(motifs=["hung_piece"], ply=23) | {"win_before": 10.0},  # excluded
+                    _mistake(motifs=["hung_piece"], ply=6),  # excluded (opening)
+                ],
+            )
+        ],
+        data_dir,
+    )
+    out = puzzles.themes(data_dir=data_dir)
+    assert {t["motif"]: t["count"] for t in out} == {"hung_piece": 1}
 
 
 def test_black_to_move_puzzle_color(data_dir):
@@ -224,8 +270,8 @@ def test_create_study_posts_and_groups_by_orientation(monkeypatch, data_dir):
             _rec(
                 "g1",
                 [
-                    _mistake(ply=1),  # white to move
-                    _mistake(fen=_FEN_B, played="d7d6", best="f6e4", best_san="Nxe4", ply=2),
+                    _mistake(ply=21),  # white to move
+                    _mistake(fen=_FEN_B, played="d7d6", best="f6e4", best_san="Nxe4", ply=22),
                 ],
             )
         ],
@@ -330,13 +376,13 @@ def test_line_recovered_from_analysis_cache(data_dir, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", data_dir)
     _write(
         [_rec("g1", [_mistake(fen=_FEN_M2, played="d1d2", best="b5b6", best_san="Kb6",
-                              motifs=["missed_mate"], ply=7)])],
+                              motifs=["missed_mate"], ply=27)])],
         data_dir,
     )
     cache_dir = os.path.join(data_dir, "analysis-cache")
     os.makedirs(cache_dir, exist_ok=True)
     with open(os.path.join(cache_dir, "g1_white.json"), "w", encoding="utf-8") as fh:
-        json.dump({"version": 1, "session": {"mistakes": [{"ply": 7, "best_line_uci": _PV_M2}]}}, fh)
+        json.dump({"version": 1, "session": {"mistakes": [{"ply": 27, "best_line_uci": _PV_M2}]}}, fh)
     (p,) = puzzles.build_puzzles(data_dir=data_dir)
     assert p["line_uci"] == _PV_M2
     assert p["mate"] is True

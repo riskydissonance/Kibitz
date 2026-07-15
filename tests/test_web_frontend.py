@@ -168,6 +168,23 @@ def test_health_endpoint_reports_ok():
     assert r.json() == {"ok": True}
 
 
+def test_puzzles_daily_route_shape(tmp_path, monkeypatch):
+    # Point at an empty DATA_DIR so the route exercises its no-games path cleanly (rather than
+    # depending on whatever real history happens to be on disk) — count/puzzles/done_today keys
+    # must always be present and the empty case must not error.
+    from server import config
+
+    (tmp_path / "history").mkdir()
+    monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+    client = TestClient(app_module.create_app())
+    r = client.get("/api/puzzles/daily")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["puzzles"] == []
+    assert body["count"] == 0
+    assert body["done_today"] == 0
+
+
 def test_shutdown_is_a_noop_outside_app_mode():
     # APP_MODE is off by default in tests (no CHESS_APP_MODE=1) — /api/shutdown must refuse to kill
     # an MCP-hosted process. Returns 200 with ok=False rather than erroring, so the frontend can show

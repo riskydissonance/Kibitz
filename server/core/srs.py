@@ -170,3 +170,32 @@ def order_puzzles(
     rng.shuffle(never_seen)
     rng.shuffle(not_due)
     return due_seen + never_seen + not_due
+
+
+def daily_session(
+    items: list[dict],
+    states: dict[str, dict],
+    now: datetime,
+    limit: int = 10,
+) -> list[dict]:
+    """Today's bundle: due-and-seen puzzles first, then never-seen puzzles (already sorted
+    hardest-lesson-first by the caller, i.e. by motif frequency / build_puzzles order), deduped by
+    id, capped at `limit`. Pure function of its inputs so it's cheap to unit test."""
+    due_seen: list[dict] = []
+    never_seen: list[dict] = []
+    seen_ids: set[str] = set()
+    for p in items:
+        pid = p.get("id")
+        if not pid or pid in seen_ids:
+            continue
+        st = states.get(pid)
+        seen = st.get("seen", 0) if st else 0
+        if seen > 0:
+            if is_due(st, now):
+                due_seen.append(p)
+                seen_ids.add(pid)
+        else:
+            never_seen.append(p)
+            seen_ids.add(pid)
+    out = due_seen + never_seen
+    return out[:limit]
