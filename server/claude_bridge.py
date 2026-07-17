@@ -349,6 +349,7 @@ def _compose_prompt(
     move_facts: str | None,
     profile_facts: str | None = None,
     speed_context: str | None = None,
+    puzzle: dict | None = None,
 ) -> str:
     parts = [
         "You are a concise chess coach reviewing a position with the user. Stockfish analysis is "
@@ -375,6 +376,64 @@ def _compose_prompt(
             "chess question first, and reference the history only if it sharpens that answer.\n"
             + profile_facts
         )
+    if puzzle:
+        game_bits = []
+        white = puzzle.get("white")
+        black = puzzle.get("black")
+        if white or black:
+            game_bits.append(f"{white or '?'} vs {black or '?'}")
+        opening = puzzle.get("opening")
+        if opening:
+            game_bits.append(f"opening: {opening}")
+        date = puzzle.get("date")
+        if date:
+            game_bits.append(f"played {date}")
+        game_desc = f" ({', '.join(game_bits)})" if game_bits else ""
+        puzzle_lines = [
+            f"This is a tactics puzzle drilled from the user's own game{game_desc}."
+        ]
+        puzzle_fen = puzzle.get("fen")
+        if puzzle_fen:
+            puzzle_lines.append(f"Puzzle starting position (FEN): {puzzle_fen}")
+        setup_fen = puzzle.get("setup_fen")
+        prev_san = puzzle.get("prev_san")
+        if setup_fen or prev_san:
+            puzzle_lines.append(
+                "Setup context: "
+                + (f"previous move {prev_san} " if prev_san else "")
+                + (f"from FEN {setup_fen}" if setup_fen else "")
+            )
+        played_san = puzzle.get("played_san")
+        if played_san:
+            puzzle_lines.append(f"The move actually played in the game here was: {played_san}")
+        solution_san = puzzle.get("solution_san")
+        if solution_san:
+            puzzle_lines.append(f"The puzzle solution move is: {solution_san}")
+        line_san = puzzle.get("line_san")
+        if line_san:
+            puzzle_lines.append(f"The full solution line is: {line_san}")
+        motifs = puzzle.get("motifs")
+        if motifs:
+            puzzle_lines.append(f"Motifs: {motifs}")
+        themes = puzzle.get("themes")
+        if themes:
+            puzzle_lines.append(f"Themes: {themes}")
+        classification = puzzle.get("classification")
+        if classification:
+            puzzle_lines.append(f"Classification: {classification}")
+        solved = puzzle.get("solved")
+        if solved is True or solved == "revealed":
+            puzzle_lines.append(
+                "The puzzle has already been solved/revealed to the user, so you are free to "
+                "discuss the solution move, the solution line, and the analysis openly."
+            )
+        else:
+            puzzle_lines.append(
+                "SPOILER RULE: the user has NOT yet solved or revealed this puzzle. Coach them "
+                "with hints and guiding questions — do NOT reveal the solution move or solution "
+                "line unless their question explicitly asks to be told the answer/solution."
+            )
+        parts.append("\n".join(puzzle_lines))
     if fen:
         parts.append(f"Current position the user is viewing (FEN): {fen}")
     if current_facts:
@@ -1014,6 +1073,7 @@ def ask(
     move_fen: str | None = None,
     session_id: str | None = None,
     use_profile: bool = False,
+    puzzle: dict | None = None,
     timeout: int = 120,
 ) -> dict:
     """Ask headless Claude a question about a position. Returns {answer, session_id}.
@@ -1037,7 +1097,7 @@ def ask(
     speed_context = _speed_context()
     prompt = _compose_prompt(
         question, fen, last_move, move_fen, current_facts, move_facts, profile_facts,
-        speed_context,
+        speed_context, puzzle,
     )
 
     # Local LLM: answer over direct HTTP, no `claude` CLI. The prompt already embeds every engine

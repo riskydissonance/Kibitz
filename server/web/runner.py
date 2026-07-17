@@ -53,7 +53,7 @@ def open_board_once() -> None:
 def _serve() -> None:
     try:
         cfg = uvicorn.Config(
-            create_app(),
+            create_app(enable_backup_scheduler=True),
             host=config.WEB_HOST,
             port=config.WEB_PORT,
             log_level="warning",

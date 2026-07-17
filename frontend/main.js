@@ -61,6 +61,8 @@ let chatFen = null;
 let chatMove = null;
 let chatSession = null; // claude -p session id, threaded across questions
 let chatGen = 0; // bumped on each game open; invalidates an in-flight restoreChat for the old game
+let pzChatSession = null; // claude -p session id for the puzzle chat panel, threaded per puzzle
+let pzChatGen = 0; // bumped on each puzzle shown; invalidates an in-flight restorePuzzleChat
 
 // History panel + progressive (navigate-while-analyzing) open.
 let analyzing = false; // true during phase 1: provisional PGN timeline, no engine evals yet
@@ -260,18 +262,43 @@ function refreshBestMoves() {
   // or while exploring your own lines, there's no reviewed move — then they show the best move to
   // play now.
   const done = !exploring ? reviewedNode() : null;
+  // Mainline positions carry precomputed best_moves/threats from the analysis sweep (see
+  // game_analysis.py). When the current position IS that mainline node (not an off-mainline
+  // explored variation) and the fields are present, render straight from the timeline — no
+  // live engine call. Falls back to the live /best-moves + /threats endpoints exactly as before
+  // when: exploring a variation, the node has no `precomputed_depth` (old cache, pre-dates this
+  // feature), or (rare) the node data is otherwise unusable.
+  const bestNodeIdx = !exploring ? (reviewedMoveNode() >= 0 ? reviewedMoveNode() : cur) : null;
+  const bestNode = bestNodeIdx != null ? timeline[bestNodeIdx] : null;
   if (bestArrowOn) {
-    deepenBestMoves(done && done.fen ? done.fen : chess.fen(), myGen, done ? done.move_uci : null);
+    if (bestNode && bestNode.precomputed_depth != null) {
+      const moves = bestNode.best_moves || [];
+      playedWasBest = !!(done && moves.length && done.move_uci === moves[0].uci);
+      bestArrows = moves.length ? movesToArrows(playedWasBest ? moves.slice(0, 1) : moves) : [];
+      drawArrows();
+    } else {
+      deepenBestMoves(done && done.fen ? done.fen : chess.fen(), myGen, done ? done.move_uci : null);
+    }
   }
   // Threat arrows show what the side that made the reviewed move THREATENS NEXT (a null-move
   // search on the position AFTER that move) — e.g. a knight stepping into forking range gets a
   // yellow arrow on the fork. At a mistake anchor the board sits BEFORE the move, so the
   // after-position is the next timeline node, not the board; everywhere else they coincide.
   let threatFen = chess.fen();
+  let threatNode = !exploring ? timeline[cur] || null : null;
   if (!exploring && atMistakeAnchor() && timeline[cur + 1] && timeline[cur + 1].fen) {
     threatFen = timeline[cur + 1].fen;
+    threatNode = timeline[cur + 1];
   }
-  if (threatArrowOn) fetchThreats(threatFen, myGen);
+  if (threatArrowOn) {
+    if (threatNode && threatNode.precomputed_depth != null) {
+      const moves = threatNode.threats || [];
+      threatArrows = moves.length ? movesToArrows(moves, "yellow", 11) : [];
+      drawArrows();
+    } else {
+      fetchThreats(threatFen, myGen);
+    }
+  }
 }
 
 // Run an escalating-depth best-move search; cancels itself on any position change (searchGen)
@@ -901,38 +928,42 @@ function renderMarkdown(text) {
   return html || "<p></p>";
 }
 
-function addChatMsg(cls, text) {
+function addChatMsg(cls, text, boxId = "chat-messages") {
   const d = document.createElement("div");
   d.className = `chat-msg ${cls}`;
   if (cls === "bot") d.innerHTML = renderMarkdown(text); // only the final answer is markdown
   else d.textContent = text;
-  const box = $("chat-messages");
+  const box = $(boxId);
   box.appendChild(d);
   box.scrollTop = box.scrollHeight;
   return d;
 }
 
-// Repopulate the chat panel from the server's in-memory transcript for the current game, so
-// switching to another game and back shows the conversation you'd had. Best-effort: a failure
-// just leaves the (already-cleared) panel empty.
-async function restoreChat() {
-  const myGen = chatGen;
+// Repopulate a chat panel from the server's in-memory transcript, so switching to another
+// game/puzzle and back shows the conversation you'd had. Best-effort: a failure just leaves the
+// (already-cleared) panel empty. Parametrized so the game-review and puzzle panels share one
+// implementation; `opts.genGetter`/`opts.sessionSetter` guard against a late response from a
+// superseded game/puzzle clobbering the panel.
+async function restoreChatGeneric(opts) {
+  const { boxId, historyUrl, genGetter, sessionSetter } = opts;
+  const myGen = genGetter();
   let hist;
   try {
-    hist = await fetch("/api/chat-history").then((r) => r.json());
+    hist = await fetch(historyUrl).then((r) => r.json());
   } catch (_) {
     return;
   }
-  if (myGen !== chatGen) return; // a newer game opened while we were fetching — don't clobber it
+  if (myGen !== genGetter()) return; // a newer game/puzzle opened while fetching — don't clobber
   const msgs = (hist && hist.messages) || [];
-  $("chat-messages").innerHTML = "";
-  for (const m of msgs) addChatMsg(m.role === "bot" ? "bot" : "user", m.text);
-  chatSession = (hist && hist.session_id) || null;
+  $(boxId).innerHTML = "";
+  for (const m of msgs) addChatMsg(m.role === "bot" ? "bot" : "user", m.text, boxId);
+  sessionSetter((hist && hist.session_id) || null);
 }
 
-async function sendChat(ev) {
+async function sendChatGeneric(ev, opts) {
   ev.preventDefault();
-  const input = $("chat-input");
+  const { boxId, inputId, sendBtnId, sessionGetter, sessionSetter, buildBody } = opts;
+  const input = $(inputId);
   // Empty box → context-aware default (the placeholder becomes a one-click question).
   const typed = input.value.trim();
   const q =
@@ -941,36 +972,121 @@ async function sendChat(ev) {
       ? `Why is ${chatMove} bad here?`
       : "What's the best move in this position, and why?");
   input.value = "";
-  addChatMsg("user", q);
-  $("chat-send").disabled = true;
-  const pending = addChatMsg("bot pending", "Kibitz is thinking… (a few seconds)");
+  addChatMsg("user", q, boxId);
+  $(sendBtnId).disabled = true;
+  const pending = addChatMsg("bot pending", "Kibitz is thinking… (a few seconds)", boxId);
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question: q,
-        fen: chess.fen(), // the exact board on screen → "what should I do here?"
-        last_move: chatMove, // the move in question → "why is this bad?"
-        move_fen: chatFen, // the position that move was played from
-        session_id: chatSession,
-        use_profile: personalizeHistory, // personalize with cross-game history (Settings toggle)
-      }),
+      body: JSON.stringify(buildBody(q, sessionGetter())),
     }).then((r) => r.json());
     pending.remove();
     if (res.error) {
-      addChatMsg("bot err", res.error);
+      addChatMsg("bot err", res.error, boxId);
     } else {
-      addChatMsg("bot", res.answer || "(no answer)");
-      if (res.session_id) chatSession = res.session_id;
+      addChatMsg("bot", res.answer || "(no answer)", boxId);
+      if (res.session_id) sessionSetter(res.session_id);
     }
   } catch (e) {
     pending.remove();
-    addChatMsg("bot err", "Request failed: " + e);
+    addChatMsg("bot err", "Request failed: " + e, boxId);
   } finally {
-    $("chat-send").disabled = false;
+    $(sendBtnId).disabled = false;
     input.focus();
   }
+}
+
+// Thin wrapper: game-review chat panel, config unchanged from before the puzzle-chat refactor.
+async function restoreChat() {
+  await restoreChatGeneric({
+    boxId: "chat-messages",
+    historyUrl: "/api/chat-history",
+    genGetter: () => chatGen,
+    sessionSetter: (v) => {
+      chatSession = v;
+    },
+  });
+}
+
+async function sendChat(ev) {
+  await sendChatGeneric(ev, {
+    boxId: "chat-messages",
+    inputId: "chat-input",
+    sendBtnId: "chat-send",
+    sessionGetter: () => chatSession,
+    sessionSetter: (v) => {
+      chatSession = v;
+    },
+    buildBody: (q, sessionId) => ({
+      question: q,
+      fen: chess.fen(), // the exact board on screen → "what should I do here?"
+      last_move: chatMove, // the move in question → "why is this bad?"
+      move_fen: chatFen, // the position that move was played from
+      session_id: sessionId,
+      use_profile: personalizeHistory, // personalize with cross-game history (Settings toggle)
+    }),
+  });
+}
+
+// Puzzle chat panel: keyed on the puzzle id (server-side) instead of the game session, and
+// carries the puzzle's own facts + spoiler state so Claude coaches rather than reveals.
+function currentPuzzleChatContext() {
+  if (!puzzle || !puzzle.list || !puzzle.list[puzzle.idx]) return null;
+  const p = puzzle.list[puzzle.idx];
+  return {
+    id: p.id,
+    fen: p.fen,
+    played_san: p.played_san,
+    solution_san: p.solution_san,
+    line_san: p.line_san,
+    motifs: p.motifs,
+    themes: p.themes,
+    classification: p.classification,
+    white: p.white,
+    black: p.black,
+    opening: p.opening,
+    date: p.date,
+    prev_san: p.prev_san,
+    setup_fen: p.setup_fen,
+    color: p.color,
+    solved: puzzle.solved ? true : puzzle.revealed ? "revealed" : false,
+  };
+}
+
+async function restorePuzzleChat() {
+  const p = puzzle && puzzle.list && puzzle.list[puzzle.idx];
+  if (!p || !p.id) {
+    $("pz-chat-messages").innerHTML = "";
+    pzChatSession = null;
+    return;
+  }
+  await restoreChatGeneric({
+    boxId: "pz-chat-messages",
+    historyUrl: `/api/chat-history?puzzle_id=${encodeURIComponent(p.id)}&side=${encodeURIComponent(p.color || "white")}`,
+    genGetter: () => pzChatGen,
+    sessionSetter: (v) => {
+      pzChatSession = v;
+    },
+  });
+}
+
+async function sendPuzzleChat(ev) {
+  await sendChatGeneric(ev, {
+    boxId: "pz-chat-messages",
+    inputId: "pz-chat-input",
+    sendBtnId: "pz-chat-send",
+    sessionGetter: () => pzChatSession,
+    sessionSetter: (v) => {
+      pzChatSession = v;
+    },
+    buildBody: (q, sessionId) => ({
+      question: q,
+      fen: chess.fen(), // the current visible board (may be mid-line during a multi-move drill)
+      session_id: sessionId,
+      puzzle: currentPuzzleChatContext(),
+    }),
+  });
 }
 
 // --- init ----------------------------------------------------------------
@@ -2625,7 +2741,7 @@ async function loadPuzzleThemes() {
   let data;
   try {
     const q = new URLSearchParams({ days: String(puzzleDays), kinds: puzzleKinds });
-    data = await fetch("/api/puzzles/themes?" + q.toString()).then((r) => r.json());
+    data = await fetch("/api/puzzles/themes?" + q.toString(), { cache: "no-store" }).then((r) => r.json());
   } catch (_) {
     wrap.innerHTML = `<span class="muted">Couldn't load puzzles.</span>`;
     return;
@@ -2642,7 +2758,7 @@ async function loadPuzzleThemes() {
   if (exportBtn) exportBtn.disabled = false;
   if (dailyBtn) {
     try {
-      const daily = await fetch("/api/puzzles/daily").then((r) => r.json());
+      const daily = await fetch("/api/puzzles/daily", { cache: "no-store" }).then((r) => r.json());
       const count = (daily && daily.count) || 0;
       dailyBtn.hidden = count === 0;
       dailyBtn.textContent = `▶ Today's session (${count} puzzles)`;
@@ -2674,7 +2790,7 @@ async function startPuzzles(motif, eco = "") {
   if (puzzleEco) q.set("eco", puzzleEco);
   let data;
   try {
-    data = await fetch("/api/puzzles?" + q.toString()).then((r) => r.json());
+    data = await fetch("/api/puzzles?" + q.toString(), { cache: "no-store" }).then((r) => r.json());
   } catch (_) {
     $("puzzles-status").textContent = "Couldn't load puzzles.";
     return;
@@ -2712,7 +2828,7 @@ async function startDailySession() {
   $("puzzles-status").textContent = "Loading today's session…";
   let data;
   try {
-    data = await fetch("/api/puzzles/daily").then((r) => r.json());
+    data = await fetch("/api/puzzles/daily", { cache: "no-store" }).then((r) => r.json());
   } catch (_) {
     $("puzzles-status").textContent = "Couldn't load today's session.";
     return;
@@ -2764,6 +2880,12 @@ function showPuzzle(i) {
   else paintPuzzleBoard();
   puzzleStatusPrompt();
   renderPuzzlePanel();
+  // New puzzle → its own chat transcript. Bump the gen so a late restore from the previous
+  // puzzle can't clobber this panel, then clear and reload from the server.
+  pzChatGen++;
+  pzChatSession = null;
+  $("pz-chat-messages").innerHTML = "";
+  restorePuzzleChat();
 }
 
 // (Re)build the board at the drill's current progress (p.fen + the line's first `puzzle.plies`
@@ -2839,15 +2961,44 @@ function puzzleStatusPrompt() {
 
 // Fire-and-forget: tell the SRS scheduler how this puzzle went. Guarded by `attemptSent` so a
 // puzzle only ever counts once (a reveal after a wrong move shouldn't post twice, etc).
+// Progress must survive the tab closing mid-attempt: app mode self-quits shortly after the
+// pagehide close-beacon (see app_liveness.py), so a plain fetch here can be aborted by the
+// browser before the server ever sees it. `keepalive: true` lets the request outlive the page;
+// on top of that we retry once, and as a last resort fall back to sendBeacon (which is designed
+// to survive unload but can't report success/failure, hence it's the last option, not the first).
 function recordPuzzleAttempt(result, firstTry) {
   if (!puzzle || puzzle.attemptSent) return;
   puzzle.attemptSent = true;
   const p = puzzle.list[puzzle.idx];
-  fetch("/api/puzzles/attempt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ puzzle_id: p.id, result, first_try: firstTry }),
-  }).catch(() => {});
+  const body = JSON.stringify({ puzzle_id: p.id, result, first_try: firstTry });
+  const post = () =>
+    fetch("/api/puzzles/attempt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    });
+  post()
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    })
+    .catch(() =>
+      post()
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        })
+        .catch(() => {
+          try {
+            const ok = navigator.sendBeacon(
+              "/api/puzzles/attempt",
+              new Blob([body], { type: "application/json" })
+            );
+            if (!ok) throw new Error("sendBeacon queue full/refused");
+          } catch (err) {
+            console.warn("Failed to record puzzle attempt", p.id, err);
+          }
+        })
+    );
 }
 
 function onPuzzleMove(orig, dest) {
@@ -3056,6 +3207,9 @@ function renderPuzzlePanel() {
 
 function exitPuzzleMode() {
   puzzle = null;
+  pzChatGen++;
+  pzChatSession = null;
+  $("pz-chat-messages").innerHTML = "";
   renderPuzzlePanel(); // hides the drill bar and gives the nav buttons their slot back
   // Restore whatever game was on the board before (if any), else a neutral message.
   if (timeline.length) {
@@ -3238,6 +3392,7 @@ async function populateSettings() {
     ? "Stockfish engine found ✓"
     : "Stockfish not found — analysis won't run until this points at the engine.";
   loadDiagnostics();
+  loadBackups();
 }
 
 async function loadDiagnostics() {
@@ -3252,6 +3407,96 @@ async function loadDiagnostics() {
     pre.dataset.path = data.path || "";
   } catch (_) {
     pre.textContent = "Could not load diagnostics.";
+  }
+}
+
+function formatBackupSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+let _pendingRestoreName = null;
+
+async function loadBackups() {
+  const list = $("backup-list");
+  const status = $("backup-status");
+  if (!list) return;
+  try {
+    const data = await fetch("/api/backups").then((r) => r.json());
+    const items = data.backups || [];
+    list.innerHTML = "";
+    if (!items.length) {
+      list.innerHTML = '<li class="backup-row-meta">No backups yet.</li>';
+    }
+    for (const b of items) {
+      const li = document.createElement("li");
+      li.className = "backup-row";
+      const when = new Date(b.timestamp).toLocaleString();
+      li.innerHTML = `
+        <div class="backup-row-info">
+          <span class="backup-row-kind">${b.kind}</span>
+          <span class="backup-row-meta">${when} · ${formatBackupSize(b.size)}</span>
+        </div>
+        <button type="button" class="linklike backup-restore-btn">Restore</button>`;
+      li.querySelector(".backup-restore-btn").addEventListener("click", () => {
+        _pendingRestoreName = b.name;
+        $("backup-restore-detail").textContent = `${b.kind} backup from ${when}`;
+        $("backup-restore-confirm").hidden = false;
+      });
+      list.appendChild(li);
+    }
+    const sched = data.scheduler || {};
+    status.textContent = sched.last_error
+      ? `Last scheduled backup check failed: ${sched.last_error}`
+      : "";
+  } catch (_) {
+    status.textContent = "Could not load backups.";
+  }
+}
+
+async function backupNow() {
+  const status = $("backup-status");
+  status.textContent = "Backing up…";
+  try {
+    const res = await fetch("/api/backups", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = data.error || "Backup failed.";
+      return;
+    }
+    status.textContent = "Backup created.";
+    loadBackups();
+  } catch (_) {
+    status.textContent = "Backup failed.";
+  }
+}
+
+async function confirmRestore(e) {
+  e.preventDefault();
+  $("backup-restore-confirm").hidden = true;
+  const name = _pendingRestoreName;
+  _pendingRestoreName = null;
+  if (!name) return;
+  const status = $("backup-status");
+  status.textContent = "Restoring…";
+  try {
+    const res = await fetch("/api/backups/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = data.error || "Restore failed.";
+      return;
+    }
+    status.textContent = data.restart_required
+      ? "Restored. Please restart Kibitz for the change to fully take effect."
+      : "Restored successfully.";
+    loadBackups();
+  } catch (_) {
+    status.textContent = "Restore failed.";
   }
 }
 
@@ -3650,6 +3895,7 @@ function init() {
   $("movelist-expand").addEventListener("click", toggleMoveList);
   $("coach-ai-btn").addEventListener("click", fetchCoachAI);
   $("chat-form").addEventListener("submit", sendChat);
+  $("pz-chat-form").addEventListener("submit", sendPuzzleChat);
 
   // The rail: primary navigation between the four views (Settings included).
   for (const v of VIEWS) {
@@ -3762,6 +4008,13 @@ function init() {
       btn.textContent = "Copied ✓";
       setTimeout(() => (btn.textContent = prev), 1500);
     } catch (_) {}
+  });
+  $("backup-now").addEventListener("click", backupNow);
+  $("backup-refresh").addEventListener("click", loadBackups);
+  $("backup-restore-form").addEventListener("submit", confirmRestore);
+  $("backup-restore-cancel").addEventListener("click", () => {
+    _pendingRestoreName = null;
+    $("backup-restore-confirm").hidden = true;
   });
   $("set-profile-mode").addEventListener("change", applyProfilePreset);
   $("set-recent").addEventListener("input", syncProfileModeFromFields);

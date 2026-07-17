@@ -214,6 +214,13 @@ SWEEP_DEPTH: int = int(os.environ.get("CHESS_SWEEP_DEPTH", "16"))
 
 DEFAULT_MULTIPV: int = int(os.environ.get("CHESS_DEFAULT_MULTIPV", "1"))
 
+# Precomputed best_moves/threats stored per timeline node during a game sweep, so the review
+# UI's arrows can render without live engine calls for mainline positions. best_moves reuses the
+# sweep's required per-position engine call (multipv=N instead of 1, same depth); threats is a
+# genuinely extra null-move search call per position.
+PRECOMPUTE_MULTIPV: int = int(os.environ.get("CHESS_PRECOMPUTE_MULTIPV", "3"))
+PRECOMPUTE_THREAT_MULTIPV: int = int(os.environ.get("CHESS_PRECOMPUTE_THREAT_MULTIPV", "2"))
+
 # Engine process pool size. 1-2 is plenty for a single-user local tool. Default 2 so the
 # web /evaluate route and a concurrent MCP call don't serialise behind one engine.
 ENGINE_POOL_SIZE: int = int(os.environ.get("CHESS_ENGINE_POOL_SIZE", "2"))

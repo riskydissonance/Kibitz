@@ -270,6 +270,18 @@
               </button>
               <div id="puzzle-export-status" class="muted"></div>
             </section>
+            <section class="card chat-panel">
+              <div class="card-head"><h2>Ask about this puzzle</h2></div>
+              <p class="muted chat-hint">
+                Ask about the current puzzle (uses your Claude subscription).
+              </p>
+              <div id="pz-chat-messages" class="chat-messages"></div>
+              <form id="pz-chat-form" class="chat-form">
+                <input id="pz-chat-input" type="text" autocomplete="off"
+                  placeholder="why is this bad? · what should I do here?" />
+                <button type="submit" id="pz-chat-send" aria-label="Send" title="Send">→</button>
+              </form>
+            </section>
           </aside>
         </div>
       </main>
@@ -493,8 +505,42 @@
             </div>
             <pre id="diag-log" class="diag-log" aria-live="polite"></pre>
           </div>
+
+          <!-- Backups: local tar.gz snapshots of the data dir, so a bad restore or a disk issue
+               isn't a total loss. Scheduler runs daily/weekly/monthly automatically in the
+               background; "Back up now" takes an on-demand one. -->
+          <div id="settings-backups" class="settings-card">
+            <label class="set-field">
+              <span class="set-label">Backups</span>
+              <span class="set-hint">Local snapshots of your game history, settings, and coaching
+                profile — daily, weekly, and monthly copies are kept automatically. Restoring
+                replaces your current data with the chosen backup (a safety copy of what's there
+                now is taken first).</span>
+            </label>
+            <div class="set-actions">
+              <button type="button" id="backup-now" class="btn">Back up now</button>
+              <button type="button" id="backup-refresh" class="linklike">Refresh</button>
+            </div>
+            <p id="backup-status" class="muted set-hint"></p>
+            <ul id="backup-list" class="backup-list"></ul>
+          </div>
         </div>
       </main>
+    </div>
+
+    <!-- Restore confirmation dialog (backups). -->
+    <div id="backup-restore-confirm" class="firstrun-overlay" hidden>
+      <form id="backup-restore-form" class="firstrun-card">
+        <h2>Restore this backup?</h2>
+        <p class="muted" id="backup-restore-detail"></p>
+        <p class="muted">This replaces your current games, settings, and coaching history with
+          the contents of that backup. A safety backup of what's currently here is taken
+          automatically first, so this can be undone by restoring that one instead.</p>
+        <div class="set-actions">
+          <button type="button" id="backup-restore-cancel" class="linklike">Cancel</button>
+          <button type="submit" class="btn danger">Restore</button>
+        </div>
+      </form>
     </div>
 
     <!-- First-run prompt (app mode only): shown when there's no configured/saved account. Two

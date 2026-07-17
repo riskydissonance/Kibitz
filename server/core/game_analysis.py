@@ -11,7 +11,7 @@ Terminal positions (checkmate/stalemate/draw) are scored directly without the en
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import chess
@@ -40,6 +40,9 @@ class _PosEval:
     cp_stm: float  # signed centipawns for the side to move (mate -> +/-MATE_SCORE_CP)
     best_pv_uci: list[str]  # principal variation (empty if terminal)
     is_terminal: bool
+    # Raw multipv lines from the sweep's engine call (empty for terminal positions), used to
+    # derive `best_moves` for the timeline without any extra engine call.
+    lines: list = field(default_factory=list)
 
 
 def _signed_cp(cp: int | None, mate: int | None) -> float:
@@ -48,8 +51,13 @@ def _signed_cp(cp: int | None, mate: int | None) -> float:
     return float(cp if cp is not None else 0)
 
 
-def _evaluate_position(board: chess.Board, *, depth: int) -> _PosEval:
-    """Evaluate `board` from the side-to-move's perspective, handling terminal cases."""
+def _evaluate_position(board: chess.Board, *, depth: int, multipv: int = 1) -> _PosEval:
+    """Evaluate `board` from the side-to-move's perspective, handling terminal cases.
+
+    `multipv` > 1 asks the engine for extra alternative lines at the SAME depth in one call
+    (used to derive the timeline's `best_moves` without any additional engine cost beyond the
+    already-required best-line eval).
+    """
     outcome = board.outcome(claim_draw=True)
     if outcome is not None:
         if outcome.winner is None:  # draw of any kind
@@ -60,14 +68,58 @@ def _evaluate_position(board: chess.Board, *, depth: int) -> _PosEval:
         cp = float(config.MATE_SCORE_CP) if side_to_move_won else float(-config.MATE_SCORE_CP)
         return _PosEval(win_stm=win, cp_stm=cp, best_pv_uci=[], is_terminal=True)
 
-    res = engine.analyse(board.fen(), depth=depth, multipv=1)
+    res = engine.analyse(board.fen(), depth=depth, multipv=multipv)
     best = res.best
     return _PosEval(
         win_stm=win_percent_from_score(best.cp, best.mate),
         cp_stm=_signed_cp(best.cp, best.mate),
         best_pv_uci=list(best.pv_uci),
         is_terminal=False,
+        lines=res.lines,
     )
+
+
+def _lines_to_move_dicts(board: chess.Board, lines: list, *, limit: int) -> list[dict]:
+    """Convert engine multipv lines (side-to-move-relative) into the compact arrow payload
+    shape shared with the live /best-moves and /threats endpoints: {uci, san, win_percent,
+    eval_cp[, mate]}. `board` is the position the lines were computed FROM (used for SAN)."""
+    out: list[dict] = []
+    for ln in lines[:limit]:
+        if not ln.pv_uci:
+            continue
+        uci = ln.pv_uci[0]
+        try:
+            move = chess.Move.from_uci(uci)
+            san = board.san(move)
+        except (ValueError, AssertionError):
+            continue
+        entry: dict = {
+            "uci": uci,
+            "san": san,
+            "win_percent": round(ln.win_percent, 1),
+            "eval_cp": ln.cp,
+        }
+        if ln.mate is not None:
+            entry["mate"] = ln.mate
+        out.append(entry)
+    return out
+
+
+def _threat_lines(board: chess.Board, *, depth: int, multipv: int = 2) -> tuple[chess.Board, list]:
+    """Null-move search on `board`: what the side to move there threatens next.
+
+    Returns (null_moved_board, engine_lines) so the caller can convert to SAN; ([], board) with
+    empty lines when there's no legal null-move analysis to do (in check, or game over before or
+    after the null move).
+    """
+    if board.is_check() or board.is_game_over():
+        return board, []
+    nb = board.copy(stack=False)
+    nb.push(chess.Move.null())
+    if nb.is_game_over():  # opponent has no legal reply (e.g. stalemate after the pass)
+        return nb, []
+    res = engine.analyse(nb.fen(), depth=depth, multipv=multipv)
+    return nb, res.lines
 
 
 def _pv_to_san(board: chess.Board, pv_uci: list[str], *, max_plies: int = 12) -> list[str]:
@@ -208,6 +260,9 @@ def analyze_game(
     # the slow part of the sweep (one fixed-depth engine call per ply ⇒ roughly linear time), so
     # we report progress here for the web board's progress bar.
     pos_evals: list[_PosEval] = []
+    # Per-position precomputed threats: (null_moved_board, engine_lines), parallel to pos_evals.
+    # An extra engine call per position (null-move search) beyond the required best-line eval.
+    threat_data: list[tuple[chess.Board, list]] = []
     total_positions = len(steps) + 1
 
     def _report(done: int) -> None:
@@ -218,10 +273,17 @@ def analyze_game(
         except Exception:  # pragma: no cover - a broken reporter must never break a review
             pass
 
+    # best_moves come from the SAME engine call as the sweep's required best-line eval (multipv=3
+    # at the sweep depth instead of multipv=1) — verified to add negligible time over multipv=1 at
+    # these depths, since Stockfish's search itself dominates the cost, not PV bookkeeping.
+    # `threats` is a genuinely extra call (null-move search) per position, counted in progress
+    # alongside the main eval so the bar still reaches 100% without a separate phase.
     for before, _move in steps:
-        pos_evals.append(_evaluate_position(before, depth=depth))
+        pos_evals.append(_evaluate_position(before, depth=depth, multipv=config.PRECOMPUTE_MULTIPV))
+        threat_data.append(_threat_lines(before, depth=depth, multipv=config.PRECOMPUTE_THREAT_MULTIPV))
         _report(len(pos_evals))
-    pos_evals.append(_evaluate_position(final_board, depth=depth))
+    pos_evals.append(_evaluate_position(final_board, depth=depth, multipv=config.PRECOMPUTE_MULTIPV))
+    threat_data.append(_threat_lines(final_board, depth=depth, multipv=config.PRECOMPUTE_THREAT_MULTIPV))
     _report(len(pos_evals))
 
     all_my_moves: list[MoveReview] = []
@@ -310,7 +372,9 @@ def analyze_game(
         m for m in all_my_moves if m.classification in ("inaccuracy", "mistake", "blunder")
     ]
 
-    timeline = _build_timeline(steps, pos_evals, final_board, all_my_moves, mistakes, my_turn)
+    timeline = _build_timeline(
+        steps, pos_evals, final_board, all_my_moves, mistakes, my_turn, threat_data, depth
+    )
 
     session = ReviewSession(
         pgn=pgn,
@@ -344,6 +408,8 @@ def _build_timeline(
     all_my_moves: list[MoveReview],
     mistakes: list[MoveReview],
     my_turn: chess.Color,
+    threat_data: list[tuple[chess.Board, list]] | None = None,
+    precomputed_depth: int | None = None,
 ) -> list[dict]:
     """One entry per position (node 0..N). Each non-final node carries its OUTGOING move,
     the engine's best move there, and (for the player's moves) the classification."""
@@ -379,6 +445,23 @@ def _build_timeline(
                     "mistake_index": mistake_index_by_ply.get(ply),
                 }
             )
+
+        # Optional precomputed engine data for this node's own position, so the review UI can
+        # render best-move/threat arrows for mainline positions with no live engine call. Missing
+        # on old cache entries (schema-compatible: readers must treat absence as "not precomputed").
+        board_here = final_board if is_final else steps[k][0]
+        node["best_moves"] = _lines_to_move_dicts(
+            board_here, pos_evals[k].lines, limit=config.PRECOMPUTE_MULTIPV
+        )
+        if threat_data is not None:
+            null_board, threat_lines = threat_data[k]
+            node["threats"] = _lines_to_move_dicts(
+                null_board, threat_lines, limit=config.PRECOMPUTE_THREAT_MULTIPV
+            )
+        else:
+            node["threats"] = []
+        node["precomputed_depth"] = precomputed_depth
+
         nodes.append(node)
     return nodes
 

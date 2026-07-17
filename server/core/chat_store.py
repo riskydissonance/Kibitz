@@ -60,6 +60,32 @@ def record(
             entry["session_id"] = session_id
 
 
+def get_by_key(key: tuple[str, str]) -> dict:
+    """Same as ``get`` but keyed directly, e.g. ``("puzzle:" + puzzle_id, side)``.
+
+    Puzzle keys always carry a ``"puzzle:"`` prefix on the first element, which no real game id
+    can ever produce (game ids are derived from move-UCI hashes), so puzzle transcripts can never
+    collide with a game's ``(game_id, side)`` entry in the same ``_STORE`` dict.
+    """
+    with _LOCK:
+        entry = _STORE.get(key)
+        if entry is None:
+            return {"messages": [], "session_id": None}
+        return {"messages": list(entry["messages"]), "session_id": entry.get("session_id")}
+
+
+def record_by_key(
+    key: tuple[str, str], question: str, answer: str, session_id: Optional[str]
+) -> None:
+    """Same as ``record`` but keyed directly (see ``get_by_key``)."""
+    with _LOCK:
+        entry = _STORE.setdefault(key, {"messages": [], "session_id": None})
+        entry["messages"].append({"role": "user", "text": question})
+        entry["messages"].append({"role": "bot", "text": answer})
+        if session_id:
+            entry["session_id"] = session_id
+
+
 def clear() -> None:
     """Drop all stored transcripts (used by tests)."""
     with _LOCK:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import mimetypes
+import os
 import sys
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from starlette.types import Scope
 
 from server import config
 from server.core import app_liveness
+from server.core import backups
 from server.core import lifecycle
+from server.web.routes_backup import router as backup_router
 from server.web.routes_board import router as board_router
 from server.web.routes_chat import router as chat_router
 from server.web.routes_history import router as history_router
@@ -109,12 +112,21 @@ def _resolve_frontend_dir() -> Path | None:
 _FRONTEND_DIR = _resolve_frontend_dir()
 
 
-def create_app() -> FastAPI:
+def create_app(*, enable_backup_scheduler: bool | None = None) -> FastAPI:
     app = FastAPI(title="Chess Review board", docs_url="/api/docs")
 
     # In app mode (double-click launcher), self-exit shortly after the browser tab is closed.
     # No-op for the MCP-driven board and tests (config.APP_MODE is off there).
     app_liveness.start()
+
+    # Daily/weekly/monthly backup scheduler: a daemon thread, so it must only run once per real
+    # server process — not once per `create_app()` call in tests (of which there are many). Gated
+    # by an explicit param (set by the real entrypoint, server/web/runner.py) or, failing that, an
+    # env var; off by default so a bare `create_app()` (every test in this suite) stays inert.
+    if enable_backup_scheduler is None:
+        enable_backup_scheduler = os.environ.get("CHESS_BACKUP_SCHEDULER", "0") == "1"
+    if enable_backup_scheduler:
+        backups.start_scheduler()
 
     # Catch-all safety net: a bug in any route handler returns a logged JSON 500 instead of
     # bubbling up and (in the worst case) taking the server down. Starlette already recovers from
@@ -133,6 +145,18 @@ def create_app() -> FastAPI:
         return JSONResponse({"error": "internal server error"}, status_code=500)
 
     guard_active = _guard_is_active()
+
+    @app.middleware("http")
+    async def _no_store_api(request: Request, call_next):
+        # /api/* is all live application state (puzzle progress, games, settings) — never cached.
+        # A cached GET /api/puzzles/daily is exactly how a stale puzzle list survives a completed
+        # attempt: the browser (or an intermediary) serves yesterday's response instead of asking
+        # the server again. Static frontend assets are unaffected (mounted separately below, with
+        # their own no-cache headers via _NoCacheStaticFiles).
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.middleware("http")
     async def _guard_and_mark_activity(request: Request, call_next):
@@ -154,6 +178,7 @@ def create_app() -> FastAPI:
         lifecycle.touch()
         return await call_next(request)
 
+    app.include_router(backup_router, prefix="/api")
     app.include_router(board_router, prefix="/api")
     app.include_router(chat_router, prefix="/api")
     app.include_router(history_router, prefix="/api")

@@ -23,6 +23,7 @@ class ChatBody(BaseModel):
     move_fen: str | None = None  # the position that move was played from
     session_id: str | None = None
     use_profile: bool = False  # inject the player's cross-game coaching profile
+    puzzle: dict | None = None  # puzzle context; when present, chat is keyed on the puzzle
 
 
 class CoachBody(BaseModel):
@@ -34,12 +35,24 @@ def chat(body: ChatBody) -> JSONResponse:
     """Answer a position-aware 'why?' / 'what now?' question on the user's Claude subscription."""
     if not body.question.strip():
         return JSONResponse({"error": "Empty question."}, status_code=400)
+
+    # Puzzle-keyed chat: a distinct in-memory transcript per puzzle, separate from any game
+    # review session (see chat_store.get_by_key/record_by_key — the "puzzle:" prefix can never
+    # collide with a real game id).
+    puzzle_key: tuple[str, str] | None = None
+    if body.puzzle and body.puzzle.get("id"):
+        side = body.puzzle.get("color") or "white"
+        puzzle_key = ("puzzle:" + str(body.puzzle["id"]), side)
+
     sess = session_mod.get_session()
-    # If the frontend didn't carry a session id (e.g. just switched back to this game), thread
-    # onto the one we stored for it so the conversation stays continuous.
+    # If the frontend didn't carry a session id (e.g. just switched back to this game/puzzle),
+    # thread onto the one we stored for it so the conversation stays continuous.
     session_id = body.session_id
-    if sess is not None and not session_id:
-        session_id = chat_store.get(sess).get("session_id")
+    if not session_id:
+        if puzzle_key is not None:
+            session_id = chat_store.get_by_key(puzzle_key).get("session_id")
+        elif sess is not None:
+            session_id = chat_store.get(sess).get("session_id")
     try:
         res = claude_bridge.ask(
             body.question,
@@ -48,19 +61,28 @@ def chat(body: ChatBody) -> JSONResponse:
             move_fen=body.move_fen,
             session_id=session_id,
             use_profile=body.use_profile,
+            puzzle=body.puzzle,
         )
     except claude_bridge.ChatError as exc:
         return JSONResponse({"error": str(exc)}, status_code=503)
-    # Remember the exchange in-memory for this game so switching games and back restores it
-    # (cleared when the app closes — never written to disk).
-    if sess is not None:
+    # Remember the exchange in-memory so switching games/puzzles and back restores it (cleared
+    # when the app closes — never written to disk).
+    if puzzle_key is not None:
+        chat_store.record_by_key(puzzle_key, body.question, res.get("answer", ""), res.get("session_id"))
+    elif sess is not None:
         chat_store.record(sess, body.question, res.get("answer", ""), res.get("session_id"))
     return JSONResponse(res)
 
 
 @router.get("/chat-history")
-def chat_history() -> JSONResponse:
-    """The in-memory Q&A transcript for the current game (empty if none / app just opened)."""
+def chat_history(puzzle_id: str | None = None, side: str | None = None) -> JSONResponse:
+    """The in-memory Q&A transcript for the current game (empty if none / app just opened).
+
+    When ``puzzle_id`` is given, returns that puzzle's own transcript instead (see
+    chat_store.get_by_key).
+    """
+    if puzzle_id:
+        return JSONResponse(chat_store.get_by_key(("puzzle:" + puzzle_id, side or "white")))
     sess = session_mod.get_session()
     if sess is None:
         return JSONResponse({"messages": [], "session_id": None})

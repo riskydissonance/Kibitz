@@ -40,6 +40,14 @@ BEAT_TIMEOUT: float = float(os.environ.get("CHESS_APP_BEAT_TIMEOUT", "1800"))
 # After an explicit close beacon, wait this long for a heartbeat to resume (a refresh) before
 # exiting. Short, so a real close quits promptly.
 CLOSE_GRACE: float = float(os.environ.get("CHESS_APP_CLOSE_GRACE", "3"))
+# Extra pause right before we actually exit, on top of CLOSE_GRACE above. The pagehide handler
+# fires both the close beacon and (for the puzzle trainer) a keepalive/sendBeacon attempt POST in
+# the same event; uvicorn may have accepted that request's connection without having finished the
+# handler yet by the time CLOSE_GRACE elapses. This constant, synchronous nap gives that tiny
+# in-flight write (a JSONL append) a moment to land before the process is torn down. Keep it small
+# and constant — this is not meant to cover slow requests, just to sequence after ones already in
+# flight when the exit decision is made.
+EXIT_GRACE: float = float(os.environ.get("CHESS_APP_EXIT_GRACE", "0.5"))
 
 _lock = threading.Lock()
 _armed = False  # becomes True after the first heartbeat (browser actually connected)
@@ -113,6 +121,7 @@ def _run() -> None:
                 file=sys.stderr,
                 flush=True,
             )
+            time.sleep(EXIT_GRACE)  # let any in-flight attempt POST accepted just before finish
             try:
                 engine.shutdown()
             finally:

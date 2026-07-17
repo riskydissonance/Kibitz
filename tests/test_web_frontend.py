@@ -185,6 +185,52 @@ def test_puzzles_daily_route_shape(tmp_path, monkeypatch):
     assert body["done_today"] == 0
 
 
+def test_api_responses_carry_no_store_cache_control(tmp_path, monkeypatch):
+    # Puzzle progress bug: a cached GET /api/puzzles/daily can serve a stale list after an attempt
+    # was just recorded, making solved puzzles reappear. All /api/* responses must tell the
+    # browser (and any intermediary) never to cache, regardless of route or status code.
+    from server import config
+
+    (tmp_path / "history").mkdir()
+    monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+    client = TestClient(app_module.create_app())
+    for path in ("/api/puzzles/daily", "/api/health", "/api/doctor"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert r.headers.get("cache-control") == "no-store", f"{path} missing no-store"
+    # Non-API routes (the static frontend) are untouched by this middleware — they have their own
+    # no-cache handling in _NoCacheStaticFiles and shouldn't be asserted on here.
+
+
+def test_puzzle_attempt_accepts_beacon_style_post(tmp_path, monkeypatch):
+    # navigator.sendBeacon(url, blob) never lets the caller set custom headers — the Content-Type
+    # sent is whatever the Blob's own `type` was constructed with (recordPuzzleAttempt's fallback
+    # builds `new Blob([body], {type: "application/json"})`), not an explicit fetch header. This
+    # confirms the route accepts that shape: a POST whose only content-type source is the body's
+    # own declared type, with none of fetch's other default framing.
+    from server import config
+    from server.core import srs
+
+    (tmp_path / "history").mkdir()
+    monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+    client = TestClient(app_module.create_app())
+    body = b'{"puzzle_id": "g1:3", "result": "pass", "first_try": true}'
+    r = client.post(
+        "/api/puzzles/attempt", content=body, headers={"content-type": "application/json"}
+    )
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    attempts = srs.load_attempts(data_dir=str(tmp_path))
+    assert len(attempts) == 1
+    assert attempts[0]["puzzle_id"] == "g1:3"
+
+    # And the reverse gap: TestClient's httpx backend refuses to send a body with literally no
+    # content-type, so `content=` above already required one — but confirm the route's real
+    # behavior when Content-Type is absent stays a defined error, not a silent data-loss 500.
+    r_no_ct = client.post("/api/puzzles/attempt", content=body, headers={"content-type": ""})
+    assert r_no_ct.status_code in (200, 422)
+
+
 def test_shutdown_is_a_noop_outside_app_mode():
     # APP_MODE is off by default in tests (no CHESS_APP_MODE=1) — /api/shutdown must refuse to kill
     # an MCP-hosted process. Returns 200 with ok=False rather than erroring, so the frontend can show
